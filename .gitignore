@@ -1,0 +1,9 @@
+.workbuddy
+.refactor_bak
+__pycache__/
+*.pyc
+venv/
+dist/
+build/
+*.log
+.venv/
