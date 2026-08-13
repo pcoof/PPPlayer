@@ -36,7 +36,7 @@ uv sync
 ## 运行
 
 ```bash
-uv run python main.py
+uv run main.py
 ```
 
 首次启动会自动打开 pywebview 窗口（1280×800），标题为 "TSPlayer"。

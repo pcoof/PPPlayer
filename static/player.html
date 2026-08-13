@@ -165,9 +165,9 @@ body { font-family: var(--font); background: var(--bg); }
 .floating-actions button:active { transform: scale(.92); }
 
 /* 上下切集 */
-.sider-trigger { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 14px; z-index: 21; }
+.sider-trigger { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; z-index: 21;  border-radius: 50%}
 .trigger-btn {
-  width: 44px; height: 44px; border-radius: 50%;
+  width: 44px; height: 44px;;
   background: rgba(16,14,10,0.45); backdrop-filter: blur(8px);
    color: var(--text-dim);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -176,9 +176,22 @@ body { font-family: var(--font); background: var(--bg); }
 .trigger-btn:hover { background: var(--accent-dim); color: var(--accent-strong); border-color: var(--accent); }
 
 /* 模糊海报背景 */
-.xgplayer-blur-bg { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
-.xgplayer-blur-img { width: 100%; height: 100%; object-fit: cover; filter: blur(28px) brightness(.42); transform: scale(1.12); }
-
+.xgplayer-blur-bg {position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: -1;}
+.xgplayer-blur-img {
+    -o-object-fit: fill;
+    object-fit: fill;
+    filter: blur(100px);
+    opacity: .95;
+}
+img.xgplayer-blur-img  {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+}
 /* XGPlayer 强调色 */
 .xgplayer .xgplayer-progress .xgplayer-progress-played,
 .xgplayer .xgplayer-volume .xgplayer-volume-bar .xgplayer-volume-fill { background: var(--accent) !important; }
@@ -209,12 +222,8 @@ body {
 /* Swiper and XGPlayer overrides */
 .swiper { width: 100%; height: 100%; }
 
-.xgplayer {
-  width: 100% !important; height: 100% !important;
-  background: #000 !important;
-}
-
-.xgplayer .xgplayer-controls { background: transparent !important; }
+.xgplayer {width: 100% !important; height: 100% !important; }
+.xgplayer .xgplayer-controls,.xgplayer,.xgplayer-enter,.xgplayer-error { background: transparent !important; }
 
 .xgplayer .xgplayer-progress .xgplayer-progress-played {
   background: var(--accent) !important;
@@ -523,13 +532,13 @@ async function initPlayer(wrapEl, shouldPlay) {
             // 保留 XGPlayer 自带全屏按钮：WebView2 不支持 DOM requestFullscreen，
             // 故在 player.on('fullscreen') 中拦截原生全屏，改走 pywebview 窗口原生 toggle_fullscreen()（真正显示器全屏）。
             ignores: [],
-            fluid: true,
-            memoryPlay: true,
-            fit: 'contain',
+            fluid: false, //流式布局
+            memoryPlay: true,//记忆播放
+            // fit: 'contain',
             playsinline: true,
             fitVideoSize: 'auto',
-            cssFullscreen: false,
-            // Fullscreen: false,
+            // cssFullscreen: false, //样式全屏
+            // Fullscreen: false, //全屏
             // height: window.innerHeight,
             width: window.innerWidth,
             controls: true,
@@ -537,7 +546,7 @@ async function initPlayer(wrapEl, shouldPlay) {
             controlConfig: {
                 clearScreen: true,
                 playbackRate: [0.5,0.75,1,1.5,2],
-                autoPlayNext: true
+                autoPlayNext: true //播放下一集
             }
         });
         playerMap.set(wrapEl, player);
