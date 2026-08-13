@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#b0823c">
+<title>TSPlayer</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="/static/js/alpine.min.js" defer></script>
+</head>
+
+<body class="u-bg-paper u-text-ink u-min-h-screen u-antialiased" x-data="app()" x-init="init()" :class="{'u-overflow-hidden':showPlayer||showSettings||showFav||showHist}">
+
+<!-- 顶栏（自定义标题栏：可拖拽，含窗口控制） -->
+<header id="titleBar" class="ts-header u-sticky u-top-0 u-z30" @mousedown="titleBarMouseDown" @dblclick="titleBarDblClick">
+  <div class="ts-toprow">
+    <div class="ts-container u-py-3 u-flex u-items-center u-gap-4 u-justify-between">
+      <a href="#" @click.prevent="page=1;currentType='0';loadData()" class="ts-wordmark u-shrink-0">TS<span class="dot">.</span>Player</a>
+      <div class="ts-search-wrap">
+        <div class="ts-search u-relative u-flex u-items-center u-pl-4 u-pr-1-5 u-py-1">
+          <svg class="u-w-18 u-h-18 u-text-ink-3 u-shrink-0" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <input type="text" x-model="searchWd" @keydown.enter="doSearch()" @focus="showSearchHist=true" @blur="setTimeout(()=>showSearchHist=false,200)" placeholder="搜索影片、剧集、演员…" class="ts-search-input u-grow u-px-3 u-bg-transparent u-border-0 u-outline-none u-text-sm">
+          <button @click="doSearch()" class="ts-search-btn u-shrink-0">搜索</button>
+
+          <div x-show="showSearchHist && searchHistory.length" x-cloak class="ts-dropdown u-absolute u-z50 u-top-full u-left-0 u-right-0 u-mt-2 u-p-1-5">
+            <template x-for="term in searchHistory.slice(0,6)" :key="term">
+              <div class="ts-dropdown-item u-flex u-items-center u-justify-between u-px-3 u-py-2 u-rounded-lg">
+                <button @click="searchWd=term;doSearch()" class="u-flex u-items-center u-gap-2-5 u-text-xs u-text-ink-2 u-grow u-text-left">
+                  <svg class="u-w-4 u-h-4 u-text-ink-3 u-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span x-text="term" class="u-truncate"></span>
+                </button>
+                <button @click="removeSearchHistory(term)" class="u-p-1 u-text-ink-3 u-hover-danger u-transition-colors" title="删除">
+                  <svg class="u-w-4 u-h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="u-flex u-items-center u-gap-1-5 u-shrink-0">
+        <button @click="toggleThemeMode()" class="ts-icon-btn" :title="'主题：' + cfg.theme">
+          <template x-if="cfg.theme==='light'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-1.414-1.414M6.343 6.343 4.93 4.93m12.728 1.414L16.242 7.76M6.343 17.657l-1.414 1.414M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg></template>
+          <template x-if="cfg.theme==='dark'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></template>
+          <template x-if="cfg.theme==='auto'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></template>
+        </button>
+        <button @click="showFav=!showFav;showHist=false;showSettings=false" class="ts-icon-btn u-relative" :class="showFav?'is-active':''" title="收藏">
+          <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+          <span x-show="fav.length" x-cloak x-text="fav.length" class="ts-badge"></span>
+        </button>
+        <button @click="showHist=!showHist;showFav=false;showSettings=false" class="ts-icon-btn u-relative" :class="showHist?'is-active':''" title="历史">
+          <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span x-show="his.length" x-cloak x-text="his.length" class="ts-badge"></span>
+        </button>
+        <button @click="showSettings=!showSettings;showFav=false;showHist=false" class="ts-icon-btn" :class="showSettings?'is-active':''" title="设置">
+          <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="ts-win-controls header-win" @mousedown.stop>
+      <button class="ts-win-btn" @click="winMin" title="最小化" aria-label="最小化">
+        <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="6.2" width="9" height="1.5" rx="0.75" fill="currentColor"/></svg>
+      </button>
+      <button class="ts-win-btn" @click="winMax" title="最大化 / 还原" aria-label="最大化">
+        <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+      <button class="ts-win-btn ts-win-close" @click="winClose" title="关闭" aria-label="关闭">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l7 7M10 3l-7 7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="typeNavContainer" x-show="classes.length" x-cloak class="ts-catnav">
+    <div class="ts-container u-py-1-5">
+      <div class="u-flex u-items-center u-gap-1 u-py-2">
+        <button @click="currentType='0';page=1;loadData()" class="ts-cat" :class="currentType==='0'?'is-active':''">全部</button>
+        <template x-for="c in visibleClasses" :key="c.type_id">
+          <button @click="currentType=String(c.type_id);page=1;loadData()" class="ts-cat" :class="currentType===String(c.type_id)?'is-active':''" x-text="c.type_name"></button>
+        </template>
+        <div x-show="hiddenClasses.length > 0" class="u-relative u-ml-1">
+          <button @click="showMoreTypes=!showMoreTypes" class="ts-cat-more u-flex u-items-center" title="更多分类">
+            <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div x-show="showMoreTypes" x-cloak x-transition @click.away="showMoreTypes=false" class="ts-cat-menu u-absolute u-right-0 u-top-full u-mt-2 u-w-48 u-p-1-5 u-z50 u-max-h-64 u-overflow-y-auto ts-scroll">
+            <template x-for="c in hiddenClasses" :key="c.type_id">
+              <button @click="currentType=String(c.type_id);page=1;loadData();showMoreTypes=false" class="u-block u-w-full u-text-left u-px-3 u-py-2 u-rounded-lg u-text-sm u-text-ink-2 u-hover-surface-2 u-transition-colors" x-text="c.type_name"></button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 主内容 -->
+<main class="u-grow ts-container ts-content u-py-7">
+  <!-- 空状态：无源 -->
+  <div x-show="!sources.length" x-cloak class="ts-empty">
+    <div class="ts-empty-icon">
+      <svg class="u-w-8 u-h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+    </div>
+    <h3>还没有添加影视源</h3>
+    <p>在设置中添加 API 源，开始你的私人放映厅</p>
+    <button @click="showSettings=true;settingsTab='sources'" class="ts-cta">去添加</button>
+  </div>
+
+
+  <!-- 卡片墙 -->
+  <div x-show="videos.length" x-cloak :class="currentListLayout()==='poster' ? 'ts-grid-poster' : 'ts-grid-land'">
+    <template x-for="item in videos" :key="item.vod_id + '_' + Math.random()">
+      <div @click="openPlayer(item)" class="ts-card group">
+        <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
+          <img :src="item.vod_pic || placeholderImg" loading="lazy" @error="$event.target.src=placeholderImg" alt="">
+          <div class="ts-card-gradient"></div>
+          <span x-show="cardTagText('tl', item)" x-cloak x-text="cardTagText('tl', item)" class="ts-tag u-top-2 u-left-2"></span>
+          <span x-show="cardTagText('tr', item)" x-cloak x-text="cardTagText('tr', item)" class="ts-tag u-top-2 u-right-12"></span>
+          <span x-show="cardTagText('bl', item)" x-cloak x-text="cardTagText('bl', item)" class="ts-tag u-bottom-2 u-left-2"></span>
+          <span x-show="cardTagText('br', item)" x-cloak x-text="cardTagText('br', item)" class="ts-tag u-bottom-2 u-right-2"></span>
+          <button @click.stop="toggleFav(item)" class="ts-fav-btn" :class="isFav(item.vod_id)?'is-fav':''" title="收藏">
+            <svg :class="isFav(item.vod_id)?'u-fill-current':''" class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+          </button>
+        </div>
+        <div class="ts-card-body">
+          <h3 class="ts-card-title" x-text="item.vod_name || '未命名'"></h3>
+          <div class="ts-card-meta u-flex u-items-center u-gap-2">
+            <span x-show="cardTagText('sub1', item)" x-cloak x-text="cardTagText('sub1', item)"></span>
+            <span x-show="cardTagText('sub2', item)" x-cloak x-text="cardTagText('sub2', item)"></span>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 分页 -->
+  <div x-show="totalPages>1 && cfg.loadMode==='page'" x-cloak class="u-flex u-justify-center u-items-center u-gap-2 u-mt-10 u-pb-4">
+    <button @click="page>1&&(page--,loadData())" class="ts-ghost-btn" :class="page<=1?'u-opacity-50 u-cursor-not-allowed':''">上一页</button>
+      <template x-for="p in pageRange()" :key="p">
+        <button @click="page=p;loadData()" class="ts-page-btn" :class="p===page?'is-active':''" x-text="p"></button>
+      </template>
+    <button @click="page<totalPages&&(page++,loadData())" class="ts-ghost-btn" :class="page>=totalPages?'u-opacity-50 u-cursor-not-allowed':''">下一页</button>
+  </div>
+
+  <!-- 自动加载模式「加载更多」手动兜底按钮：滚动无限加载为主，按钮始终可用作补充；加载中显示转圈动画 -->
+  <div x-show="videos.length && hasMore && cfg.loadMode==='waterfall'" x-cloak class="loadMore u-flex u-justify-center u-items-center u-mt-8 u-pb-4">
+    <button x-show="!loading" @click="loadMore()" class="ts-loadmore-btn">加载更多</button>
+    <div x-show="loading" class="loading-14" role="status" aria-label="加载中"></div>
+  </div>
+  <div id="loadSentinel" style="height:1px"></div>
+
+  <!-- 空数据 -->
+  <div x-show="sources.length && !loading && !videos.length" x-cloak class="ts-empty">
+    <div class="ts-empty-icon">
+      <svg class="u-w-7 u-h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" /></svg>
+    </div>
+    <h3>暂无影片</h3>
+    <p>换个分类或调整关键词试试</p>
+  </div>
+</main>
+
+<!-- 收藏抽屉 -->
+<div x-show="showFav" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-6" x-transition:enter-end="opacity-100 translate-x-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click.away="showFav=false" class="u-fixed u-inset-y u-right-0 u-z40 u-w-420 u-max-w-full ts-drawer ts-scroll">
+  <div class="ts-drawer-head">
+    <h2 class="ts-drawer-title">我的收藏</h2>
+    <button @click="showFav=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+  </div>
+  <div class="u-grow u-overflow-y-auto u-px-3 u-py-3 u-space-y-1-5 ts-scroll">
+    <template x-for="item in fav" :key="item.vod_id">
+      <div @click="openPlayer(item);showFav=false" class="ts-list-item">
+        <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
+        <div class="u-grow u-min-w-0">
+          <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
+          <p class="ts-list-sub" x-text="item.type_name || ''"></p>
+        </div>
+        <button @click.stop="toggleFav(item)" class="u-p-2 u-text-danger u-hover-danger-soft u-rounded-lg u-transition-colors">
+          <svg class="u-w-4 u-h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+        </button>
+      </div>
+    </template>
+    <div x-show="!fav.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有收藏</div>
+  </div>
+</div>
+
+<!-- 历史抽屉 -->
+<div x-show="showHist" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-6" x-transition:enter-end="opacity-100 translate-x-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click.away="showHist=false" class="u-fixed u-inset-y u-right-0 u-z40 u-w-420 u-max-w-full ts-drawer ts-scroll">
+  <div class="ts-drawer-head">
+    <h2 class="ts-drawer-title">播放历史</h2>
+    <div class="u-flex u-items-center u-gap-2">
+      <button @click="clearHist()" class="ts-danger-text u-px-3 u-py-1-5 u-text-xs u-rounded-lg u-hover-danger-soft u-transition-colors">清空</button>
+      <button @click="showHist=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+    </div>
+  </div>
+  <div class="u-grow u-overflow-y-auto u-px-3 u-py-3 u-space-y-1-5 ts-scroll">
+    <template x-for="item in his" :key="item.vod_id + '_' + item.last_watch_time">
+      <div @click="openPlayer(item);showHist=false" class="ts-list-item">
+        <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
+        <div class="u-grow u-min-w-0">
+          <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
+          <p class="ts-list-sub" x-text="formatTime(item.last_watch_time)"></p>
+        </div>
+      </div>
+    </template>
+    <div x-show="!his.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有历史</div>
+  </div>
+</div>
+
+<!-- 设置抽屉 -->
+<div x-show="showSettings" x-cloak x-transition.opacity @click.self="showSettings=false" class="u-fixed u-inset u-z50 ts-modal-scrim u-flex u-items-start u-justify-end">
+  <div @click.stop x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-8" x-transition:enter-end="opacity-100 translate-x-0" class="u-fixed u-inset-y u-right-0 u-z50 u-w-480 u-max-w-full ts-drawer ts-scroll">
+    <div class="ts-drawer-head">
+      <h2 class="ts-drawer-title">设置中心</h2>
+      <button @click="showSettings=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+    </div>
+    <div class="u-flex u-px-3 u-py-2 u-gap-1 u-bg-surface-2 u-border-b u-border-line">
+      <button @click="settingsTab='basic'" class="ts-tab" :class="settingsTab==='basic'?'is-active':''">基础</button>
+      <button @click="settingsTab='layout'" class="ts-tab" :class="settingsTab==='layout'?'is-active':''">布局</button>
+      <button @click="settingsTab='sources'" class="ts-tab" :class="settingsTab==='sources'?'is-active':''">API源</button>
+      <button @click="settingsTab='data'" class="ts-tab" :class="settingsTab==='data'?'is-active':''">数据</button>
+    </div>
+    <div class="u-grow u-overflow-y-auto u-px-5 u-space-y-6 ts-scroll">
+      <!-- 基础 -->
+      <div x-show="settingsTab==='basic'" x-cloak class="u-space-y-5">
+        <div>
+          <label class="ts-label u-block u-mb-2">加载模式</label>
+          <div class="ts-seg">
+            <button @click="cfg.loadMode='page';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='page'?'is-active':''">上下页</button>
+            <button @click="cfg.loadMode='waterfall';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='waterfall'?'is-active':''">自动加载</button>
+          </div>
+        </div>
+        <div>
+          <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2 u-cursor-pointer">
+            <input type="checkbox" x-model="cfg.smartAdRemove" @change="saveCfg()" class="u-rounded u-accent"> 智能去广告
+          </label>
+          <p class="ts-hint u-mt-2">自动识别并剔除片头 / 片中广告切片（基于切片源差异与 discontinuity），只播放正片。关闭则原样加载。</p>
+        </div>
+        <div>
+          <label class="ts-label u-block u-mb-2">主题风格</label>
+          <p class="ts-hint u-mb-3">与浅色 / 深色模式独立组合，九种视觉风格随心切换。</p>
+          <div class="ts-theme-grid">
+            <template x-for="t in themeList" :key="t.id">
+              <button type="button" @click="setStyleTheme(t.id)" class="ts-theme-card" :class="cfg.styleTheme===t.id?'is-active':''">
+                <span class="ts-theme-swatch" :style="t.swatch"></span>
+                <span class="ts-theme-name" x-text="t.name"></span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+      <!-- 布局 -->
+      <div x-show="settingsTab==='layout'" x-cloak class="u-space-y-6">
+        <div>修改后同步到当前选择的api源</div>
+        <div>
+          <label class="ts-label u-block u-mb-2">海报比例</label>
+          <div class="ts-seg">
+            <button @click="setListLayout('poster')" :class="currentListLayout()==='poster'?'is-active':''">竖图</button>
+            <button @click="setListLayout('landscape')" :class="currentListLayout()==='landscape'?'is-active':''">横图</button>
+          </div>
+        </div>
+        <div>
+          <label class="ts-label u-block u-mb-2">卡片标签</label>
+          <p class="ts-hint u-mb-3">四角标签与标题下方两行，从字段中选择（选「不显示」则隐藏）</p>
+          <div class="u-grid u-grid-2 u-gap-3">
+            <div><span class="ts-hint u-block u-mb-1">左上角</span><select @change="setCardTag('tl', $event.target.value)" :value="activeCardTags().tl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">右上角</span><select @change="setCardTag('tr', $event.target.value)" :value="activeCardTags().tr" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">左下角</span><select @change="setCardTag('bl', $event.target.value)" :value="activeCardTags().bl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">右下角</span><select @change="setCardTag('br', $event.target.value)" :value="activeCardTags().br" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">标题下方·第一行</span><select @change="setCardTag('sub1', $event.target.value)" :value="activeCardTags().sub1" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">标题下方·第二行</span><select @change="setCardTag('sub2', $event.target.value)" :value="activeCardTags().sub2" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+          </div>
+        </div>
+      </div>
+      <!-- API 源 -->
+      <div x-show="settingsTab==='sources'" x-cloak class="u-space-y-4">
+        <div class="u-flex u-items-center u-justify-between">
+          <h3 class="ts-label">API 源（单选）</h3>
+          <div class="u-flex u-items-center u-gap-2">
+            <button @click="checkAllSources()" class="ts-ghost-btn">检测全部</button>
+            <button @click="exportSources()" class="ts-ghost-btn">导出</button>
+            <button @click="$refs.importFile.click()" class="ts-ghost-btn">导入</button>
+            <input type="file" x-ref="importFile" @change="importSources($event)" accept=".json" class="u-hidden">
+          </div>
+        </div>
+        <div class="u-space-y-2">
+          <button @click="addSource()" class="ts-add-dashed">＋ 添加 API 源</button>
+          <template x-for="(s,i) in sources" :key="s.id">
+            <div class="ts-src" :class="!s.enabled?'off':''">
+              <button @click="setActiveSource(i)" class="ts-switch" :class="s.enabled?'on':''"><span></span></button>
+              <div class="u-grow u-min-w-0" style="width: 70%;">
+                <div class="ts-src-name"><span :class="getStatusColor(s)" class="ts-status-dot u-mr-1">●</span><span x-text="s.name"></span></div>
+                <div class="ts-src-url" x-text="s.url"></div>
+              </div>
+              <button @click="checkSourceStatus(i)" class="ts-icon-btn ts-src-check" :class="s._status==='checking' ? 'is-spinning' : ''" title="检测连接">
+                <svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor"><path d="M884.565333 387.413333a32 32 0 0 1-32 32h-245.333333v-64h180.650667c-36.010667-49.237333-75.733333-88.064-133.632-117.504a309.333333 309.333333 0 1 0 166.613333 315.989334l4.138667-31.744 63.445333 8.32-4.181333 31.744a373.376 373.376 0 0 1-371.2 324.821333 373.333333 373.333333 0 1 1 170.154666-706.176c58.752 29.866667 101.333333 67.925333 137.386667 112.170667V142.08h64v245.333333z"/></svg>
+              </button>
+              <button @click="editSource(i)" class="ts-icon-btn" title="编辑">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              </button>
+              <button @click="deleteSource(i)" class="ts-icon-btn ts-danger-text" title="删除">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+      <!-- 数据 -->
+      <div x-show="settingsTab==='data'" x-cloak class="u-space-y-5">
+        <div>
+          <label class="ts-label u-block u-mb-2">全局数据</label>
+          <p class="ts-hint u-mb-3">导出含设置、源、收藏、历史与搜索记录；导入将覆盖当前全部本地数据。</p>
+          <div class="ts-seg">
+            <button @click="exportAllData()" class="ts-ghost-btn">导出全部</button>
+            <button @click="$refs.importAllFile.click()" class="ts-ghost-btn">导入全部</button>
+            <input type="file" x-ref="importAllFile" @change="importAllData($event)" accept=".json" class="u-hidden">
+          </div>
+        </div>
+        <div>
+          <label class="ts-label u-block u-mb-2">API 源</label>
+          <div class="ts-seg">
+            <button @click="exportSources()" class="ts-ghost-btn">导出源</button>
+            <button @click="$refs.importFile2.click()" class="ts-ghost-btn">导入源</button>
+            <input type="file" x-ref="importFile2" @change="importSources($event)" accept=".json" class="u-hidden">
+          </div>
+        </div>
+        <div class="ts-info-note">
+          <svg class="u-w-5 u-h-5 u-text-accent u-shrink-0 u-mt-0-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+          <div>
+            <p class="ts-info-note-t">数据存储说明</p>
+            <p class="d">配置保存在本地 <code>data/config.json</code>，卸载前请导出备份。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 源编辑模态 -->
+<div x-show="showSourceEdit" x-cloak x-transition.opacity @click.self="showSourceEdit=false" class="u-fixed u-inset u-z50 ts-modal-scrim u-flex u-items-start u-justify-center u-pt-12 u-px-4">
+  <div @click.stop x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" class="ts-modal">
+    <h3 class="ts-modal-title u-px-6 u-py-4 u-border-b u-border-line" x-text="editingIdx===null?'添加 API 源':'编辑 API 源'"></h3>
+    <div class="u-px-6 u-py-5 u-space-y-4 ts-scroll u-overflow-y-auto u-max-h-70vh">
+      <div>
+        <label class="ts-label u-block u-mb-1-5">源名称</label>
+        <input type="text" x-model="editingSource.name" placeholder="苹果CMS 源" class="ts-field">
+      </div>
+      <div>
+        <label class="ts-label u-block u-mb-1-5">API 地址</label>
+        <input type="text" x-model="editingSource.url" @input="fetchSourceClasses(editingSource.url)" placeholder="https://example.com/api.php/provide/vod/" class="ts-field">
+        <p class="ts-hint u-mt-1-5">直接粘贴源提供的<strong>完整接口地址</strong>即可（如 <code class="u-px-1 u-rounded u-bg-surface-2">/api.php/provide/vod/</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/api/json.php</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/api/xml.php</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/xxx/vod/json.html</code>）。系统会自动按返回内容识别 JSON / XML 类型并决定请求地址，无需手动补路径。</p>
+      </div>
+      <div>
+        <label class="ts-label u-block u-mb-1-5">海报比例</label>
+        <div class="ts-seg">
+          <button type="button" @click="editingSource.listLayout='poster'" :class="(editingSource.listLayout||'poster')==='poster'?'is-active':''">竖图</button>
+          <button type="button" @click="editingSource.listLayout='landscape'" :class="(editingSource.listLayout||'poster')==='landscape'?'is-active':''">横图</button>
+        </div>
+      </div>
+      <div class="u-space-y-4 u-pt-1">
+        <div>
+          <p class="ts-label u-mb-3">本源跳过片头片尾（优先于全局）</p>
+          <div class="u-flex u-items-center u-gap-4 u-mb-2">
+            <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2"><input type="checkbox" x-model="editingSource.skipIntro" class="u-rounded u-accent"> 跳过片头</label>
+            <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.introTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒</span></div>
+          </div>
+          <div class="u-flex u-items-center u-gap-4 u-mb-2">
+            <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2"><input type="checkbox" x-model="editingSource.skipOutro" class="u-rounded u-accent"> 跳过片尾</label>
+            <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.outroTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒(倒计时)</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="u-flex u-items-center u-justify-between">
+            <p class="ts-label">本源分类黑名单</p>
+            <button @click="showSourceBlacklistPicker=!showSourceBlacklistPicker" type="button" class="ts-ghost-btn" x-text="showSourceBlacklistPicker ? '收起' : '展开选择'"></button>
+          </div>
+          <p class="ts-hint u-mb-2">勾选后该分类在本源下隐藏。</p>
+          <div x-show="showSourceBlacklistPicker" x-cloak class="u-flex u-wrap u-gap-1-5 u-mt-2">
+            <div x-show="sourceClassesLoading" x-cloak class="u-text-sm u-text-ink-3 u-py-3">正在加载分类…</div>
+            <div x-show="!sourceClassesLoading && (sourceClassesFetched.length || allClassesList.length)">
+              <template x-for="c in (sourceClassesFetched.length ? sourceClassesFetched : allClassesList)" :key="c.type_id">
+                <button @click="toggleSourceBlacklist(c)" type="button" class="ts-chip" :class="isSourceBlacklisted(c)?'is-selected':''" x-text="c.type_name"></button>
+              </template>
+            </div>
+            <p x-show="!sourceClassesLoading && !sourceClassesFetched.length && !allClassesList.length" x-cloak class="u-text-sm u-text-ink-3 u-py-3">请输入完整 API 地址以加载分类列表。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="u-flex u-justify-end u-gap-3 u-px-6 u-py-4 u-border-t u-border-line">
+      <button @click="showSourceEdit=false" class="ts-btn-ghost">取消</button>
+      <button @click="saveSource()" class="ts-btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/window-chrome.js"></script>
+
+  <!-- 无边框窗口：边缘缩放热区（仅窗口最外缘 6px）。按下时由 window-chrome.js 经 pywebview API 缩放 -->
+  <div class="win-edge win-edge-n" data-hit="12"></div>
+  <div class="win-edge win-edge-s" data-hit="15"></div>
+  <div class="win-edge win-edge-w" data-hit="10"></div>
+  <div class="win-edge win-edge-e" data-hit="11"></div>
+  <div class="win-edge win-edge-nw" data-hit="13"></div>
+  <div class="win-edge win-edge-ne" data-hit="14"></div>
+  <div class="win-edge win-edge-sw" data-hit="16"></div>
+  <div class="win-edge win-edge-se" data-hit="17"></div>
+</body>
+
+</html>

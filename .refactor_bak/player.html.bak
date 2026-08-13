@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TSPlayer</title>
+<!-- XGPlayer（本地 vendor） -->
+<link rel="stylesheet" href="/static/css/utilities.css">
+<link rel="stylesheet" href="/static/vendor/xgplayer/index.min.css">
+<script src="/static/vendor/xgplayer/index.min.js"></script>
+<script src="/static/vendor/xgplayer/xgplayer-hls.min.js"></script>
+<!-- Swiper（本地 vendor） -->
+<link rel="stylesheet" href="/static/vendor/swiper/swiper-bundle.min.css"/>
+<script src="/static/vendor/swiper/swiper-bundle.min.js"></script><style>
+:root {
+  --bg: #100e0a;
+  --surface: rgba(255,255,255,0.07);
+  --surface-hover: rgba(255,255,255,0.13);
+  --text: #efe7d7;
+  --text-dim: #b3a892;
+  --text-muted: #7e7560;
+  --accent: #d4a85a;
+  --accent-strong: #e2bb73;
+  --accent-dim: rgba(212,168,90,0.16);
+  --line: rgba(255,255,255,0.09);
+  --font: "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
+}
+
+/* ===== TSPlayer 播放页 · 暖金极简 ===== */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: var(--font); background: var(--bg); }
+
+.pp-stage { position: fixed; inset: 0; overflow: hidden; }
+#swiperWrap { width: 100%; height: 100%; }
+
+/* 顶栏：返回 + 集数 + 窗口控制（兼作自定义标题栏，可拖拽） */
+.pp-topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; z-index: 30; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+.pp-topbar-left { display: flex; align-items: center; gap: 12px; }
+.pp-win-controls { display: flex; align-items: center; gap: 2px; }
+.pp-win-btn {
+  width: 38px; height: 34px; border: none; background: transparent; color: var(--text-dim);
+  border-radius: 9px; font-size: 13px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .18s, color .18s;
+}
+.pp-win-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.pp-win-btn.pp-win-close:hover { background: #c0412f; color: #fff; }
+.pp-back {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: rgba(16,14,10,0.5); backdrop-filter: blur(10px);
+  border: 1px solid var(--line); color: var(--text);
+  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .2s, border-color .2s, transform .2s;
+}
+.pp-back:hover { background: rgba(16,14,10,0.78); border-color: var(--accent); }
+.pp-back:active { transform: scale(.92); }
+.pp-ep-label { font-size: 13px; color: var(--text-dim); letter-spacing: .04em; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+
+/* 右侧面板（JS 依赖 .tiktok-right-panel-2 / .btn-close-right-panel-2） */
+.tiktok-right-panel-2 {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+  width: min(420px, 92vw);
+  background: #1a1712;
+  border-left: 1px solid var(--line);
+  transform: translateX(100%);
+  transition: transform .38s cubic-bezier(.22,1,.36,1);
+  display: flex; flex-direction: column;
+  box-shadow: -24px 0 70px rgba(0,0,0,.55);
+}
+.tiktok-right-panel-2.is-open { transform: translateX(0); }
+/* 模糊海报背景：整块面板以海报作模糊底图 */
+.pp-panel-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+.pp-panel-bg-img { width: 100%; height: 100%; object-fit: cover; filter: blur(42px) brightness(.32) saturate(1.05); transform: scale(1.25); }
+.pp-panel-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(16,14,10,.55) 0%, rgba(16,14,10,.82) 55%, rgba(16,14,10,.95) 100%); }
+.pp-panel-inner { display: flex; flex-direction: column; height: 100%; position: relative; z-index: 1; }
+.pp-panel-head { position: relative; }
+.pp-poster { width: 100%; height: 200px; object-fit: cover; display: block; }
+.pp-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(16,14,10,0.55); border: 1px solid var(--line);
+  color: var(--text); font-size: 20px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s, border-color .2s;
+}
+.pp-close:hover { background: rgba(16,14,10,0.82); border-color: var(--accent); }
+.pp-panel-body { flex: 1; overflow-y: auto; padding: 20px; padding-top: 56px; }
+.pp-title { font-family: var(--serif); font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 12px; }
+.pp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.pp-tags span { font-size: 12px; padding: 3px 9px; border-radius: 6px; background: var(--accent-dim); color: var(--accent-strong); }
+.pp-desc { font-size: 13px; color: var(--text-dim); line-height: 1.7; max-height: 84px; overflow: hidden; transition: max-height .3s; margin-bottom: 12px; }
+.pp-desc.expanded { max-height: 400px; }
+.pp-actors { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.pp-actors > div { padding: 6px 12px; border-radius: 10px; font-size: 13px; background: var(--surface); color: var(--text); }
+.pp-section { margin-top: 22px; }
+.pp-section-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px; font-family: var(--serif); }
+.pp-total { color: var(--text-muted); font-weight: 400; font-size: 12px; margin-left: 4px; }
+.pp-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+.pp-sources .src-switch-btn { padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 500; border: 1px solid var(--line); transition: all .2s; }
+.pp-sources .src-switch-btn:hover { border-color: var(--accent); }
+.pp-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.pp-tabs button { font-size: 12.5px; padding: 5px 10px; border-radius: 8px; color: var(--text-muted); transition: color .2s; }
+.pp-tabs button:hover { color: var(--text); }
+.pp-ep-scroll { max-height: 38vh; overflow-y: auto; }
+.pp-ep-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 集数按钮：形状由 CSS，配色由 player.js 内联（已统一为暖金） */
+.ep-item {
+  min-width: 52px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; font-size: 13px; border: 1px solid transparent; cursor: pointer;
+  padding: 0 12px; transition: background .15s, color .15s, border-color .15s, transform .15s;
+}
+.ep-item:hover { transform: translateY(-1px); filter: brightness(1.12); }
+
+/* 片内信息卡（createSlide 生成，覆盖内联以统一暖金） */
+.video-info-bottom { position: absolute; left: 16px; bottom: 86px; z-index: 20; max-width: min(560px, 80vw); }
+.video-info-bottom-content-text { font-family: var(--serif) !important; font-size: 22px !important; font-weight: 600 !important; color: #f6efe0 !important; text-shadow: 0 2px 10px rgba(0,0,0,.6); line-height: 1.5 !important; cursor: pointer; }
+.video-info-bottom .flex.flex-row.flex-wrap.gap-1 > div { background: rgba(255,255,255,0.14) !important; color: #e8e0d0 !important; }
+.info-desc-fold { color: #cfc6b3 !important; font-size: 13px !important; line-height: 1.5; height: 20px;overflow: hidden;}
+.info-desc-fold.expanded{height: auto;}
+.content.idx_name { color: var(--accent-strong) !important; font-size: 13px !important; }
+.video-info-bottom .text-xs { color: var(--accent) !important; }
+.open-panel-btn {
+  background: rgba(255,255,255,0.08) !important; border: 1px solid var(--line) !important;
+  color: var(--text) !important; font-size: 13px !important; transition: background .2s, border-color .2s;
+  display: inline-flex !important; align-items: center; gap: 8px; width: auto !important;
+}
+.open-panel-btn:hover { background: var(--accent-dim) !important; border-color: var(--accent) !important; }
+
+/* 上下切集：边界禁用态（第一集上翻页 / 最后一集下翻页 灰色不可点） */
+.sider-trigger .trigger-btn.is-disabled {
+  color: var(--text-muted); cursor: default; opacity: .42; pointer-events: none;
+}
+.sider-trigger .trigger-btn.is-disabled:hover { background: rgba(16,14,10,0.45); border-color: var(--line); }
+
+/* 右侧面板：设置开关 */
+.pp-setting-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.pp-setting-row:last-child { border-bottom: none; }
+.pp-setting-label { font-size: 13.5px; color: var(--text); }
+.pp-setting-hint { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.pp-switch {
+  width: 44px; height: 26px; border-radius: 999px; flex-shrink: 0; cursor: pointer; border: none;
+  background: rgba(255,255,255,0.16); position: relative; transition: background .25s var(--ease);
+}
+.pp-switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .25s var(--ease);
+}
+.pp-switch.on { background: var(--accent); }
+.pp-switch.on::after { transform: translateX(18px); }
+
+/* 浮动操作（收藏/下载/分享） */
+.floating-actions { position: absolute; right: 18px; bottom: 92px; display: flex; flex-direction: column; gap: 12px; z-index: 22; }
+.floating-actions button {
+  width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(16,14,10,0.5); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); color: var(--text-dim);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .18s, color .18s, transform .18s, border-color .18s;
+}
+.floating-actions button:hover { background: var(--accent-dim); color: var(--accent-strong); border-color: var(--accent); }
+.floating-actions button:active { transform: scale(.92); }
+
+/* 上下切集 */
+.sider-trigger { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 14px; z-index: 21; }
+.trigger-btn {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(16,14,10,0.45); backdrop-filter: blur(8px);
+  border: 1px solid var(--line); color: var(--text-dim);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .18s, color .18s, border-color .18s;
+}
+.trigger-btn:hover { background: var(--accent-dim); color: var(--accent-strong); border-color: var(--accent); }
+
+/* 模糊海报背景 */
+.xgplayer-blur-bg { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+.xgplayer-blur-img { width: 100%; height: 100%; object-fit: cover; filter: blur(28px) brightness(.42); transform: scale(1.12); }
+
+/* XGPlayer 强调色 */
+.xgplayer .xgplayer-progress .xgplayer-progress-played,
+.xgplayer .xgplayer-volume .xgplayer-volume-bar .xgplayer-volume-fill { background: var(--accent) !important; }
+
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+  width: 100vw; height: 100vh;
+  user-select: none;
+}
+
+#player-container {
+  width: 100%; height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+
+#player-container video { width: 100%; height: 100%; }
+
+/* 播放器挂载盒：必须撑满当前 swiper-slide，否则 XGPlayer 容器高度为 0
+   —— 表现为有声音无画面、且播放控件不可见 */
+.player-box { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+/* Swiper and XGPlayer overrides */
+.swiper { width: 100%; height: 100%; }
+
+.xgplayer {
+  width: 100% !important; height: 100% !important;
+  background: #000 !important;
+}
+
+.xgplayer .xgplayer-controls { background: transparent !important; }
+
+.xgplayer .xgplayer-progress .xgplayer-progress-played {
+  background: var(--accent) !important;
+}
+
+.xgplayer .xgplayer-volume .xgplayer-volume-bar .xgplayer-volume-fill {
+  background: var(--accent) !important;
+}
+
+/* Prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+</style>
+</head>
+<body>
+
+<!-- 垂直 Swiper -->
+<div class="pp-stage">
+    <div id="swiperWrap" class="swiper verticalSwiper">
+        <div class="swiper-wrapper" id="swiperWrapper"></div>
+    </div>
+</div>
+
+<!-- 左上角返回 + 集数 + 窗口控制 -->
+<div class="pp-topbar" id="ppTopbar">
+    <div class="pp-topbar-left">
+        <button onclick="goBack()" class="pp-back" title="返回">←</button>
+        <span id="topEpLabel" class="pp-ep-label"></span>
+    </div>
+    <div class="pp-win-controls" onmousedown="event.stopPropagation()">
+        <button class="pp-win-btn" onclick="winMinP()" title="最小化" aria-label="最小化">
+            <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="6.2" width="9" height="1.5" rx="0.75" fill="currentColor"/></svg>
+        </button>
+        <button class="pp-win-btn" onclick="winMaxP()" title="最大化 / 还原" aria-label="最大化">
+            <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button class="pp-win-btn pp-win-close" onclick="winCloseP()" title="关闭" aria-label="关闭">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l7 7M10 3l-7 7" stroke-linecap="round"/></svg>
+        </button>
+    </div>
+</div>
+
+<!-- 右侧滑出面板 -->
+<div class="tiktok-right-panel-2">
+    <div class="pp-panel-bg">
+        <img id="panelPoster" class="pp-panel-bg-img" src="" alt="">
+    </div>
+    <div class="pp-panel-inner ts-scroll">
+        <button class="btn-close-right-panel-2 pp-close" title="关闭">×</button>
+        <div class="pp-panel-body">
+            <h3 id="panelTitle" class="pp-title"></h3>
+            <div id="panelTags" class="pp-tags"></div>
+            <p id="panelDesc" class="pp-desc"></p>
+            <div id="panelActor" class="pp-actors"></div>
+
+            <!-- 设置开关 -->
+            <div class="pp-section">
+                <h4 class="pp-section-title">设置</h4>
+                <div class="pp-setting-row">
+                    <div>
+                        <div class="pp-setting-label">翻页显示</div>
+                        <div class="pp-setting-hint">选集上方显示分页标签</div>
+                    </div>
+                    <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
+                </div>
+                <div class="pp-setting-row">
+                    <div>
+                        <div class="pp-setting-label">连播</div>
+                        <div class="pp-setting-hint">本集播完自动续播下一集</div>
+                    </div>
+                    <button id="ppToggleAutoNext" class="pp-switch" onclick="toggleSetting('autoNext')"></button>
+                </div>
+            </div>
+
+            <!-- 线路切换 -->
+            <div id="panelSourceWrap" class="pp-section" style="display:none">
+                <h4 class="pp-section-title">线路</h4>
+                <div id="panelSources" class="pp-sources"></div>
+            </div>
+
+            <div class="pp-section">
+                <h4 class="pp-section-title">选集 <span id="totalEp" class="pp-total"></span></h4>
+                <div id="tabWrap" class="pp-tabs"></div>
+                <div class="pp-ep-scroll ts-scroll">
+                    <div id="epGrid" class="pp-ep-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('wheel', function(e) {
+    var target = e.target;
+    var el = target;
+    while (el && el !== document.body) {
+        if (el.classList && (
+            el.classList.contains('xgplayer-controls') ||
+            el.classList.contains('xgplayer-progress') ||
+            el.classList.contains('xgplayer-volume') ||
+            el.classList.contains('xgplayer-slider') ||
+            el.classList.contains('xgplayer-playbackrate') ||
+            el.classList.contains('xgplayer-definition') ||
+            el.closest('.xgplayer-controls')
+        )) {
+            e.stopPropagation();
+            return;
+        }
+        el = el.parentElement;
+    }
+}, true);
+
+// ==================== 状态变量 ====================
+const INIT_LOAD = 7;
+let playState = {};           // 从 API/localStorage 获取的完整状态
+let episodeList = [];         // 当前线路的分集列表 [{url, name, globalIndex}]
+let playerMap = new Map();    // player-box DOM → XGPlayer 实例
+let activePlayer = null;
+let verticalSwiper = null;
+let clearScreenState = false;
+let currentActiveIndex = 0;   // 当前激活集索引，供 canplay 内判定是否调整窗口比例
+
+// 元数据（面板用）
+let metaTitle = '';
+let metaPoster = '';
+let metaTags = [];
+let metaDesc = '';
+let metaActors = [];
+let metaPlayGroups = [];
+let metaPlaySrc = 0;
+
+// ==================== 数据加载 ====================
+function loadState() {
+    return fetch('/api/popout_state')
+        .then(r => r.json())
+        .then(state => {
+            console.log('[DEBUG] API popout_state:', state);
+            if (state && state.playGroups) return state;
+            console.warn('[DEBUG] API returned no playGroups, trying localStorage');
+            const raw = localStorage.getItem('cms_popout_state');
+            if (!raw) throw new Error('缺少播放数据');
+            return JSON.parse(raw);
+        })
+        .catch(err => {
+            console.warn('[DEBUG] API failed:', err.message, 'trying localStorage');
+            const raw = localStorage.getItem('cms_popout_state');
+            if (!raw) throw new Error('缺少播放数据');
+            return JSON.parse(raw);
+        });
+}
+
+function buildEpisodeList() {
+    const src = playState.playGroups[playState.playSrc];
+    if (!src || !src.ep) return [];
+    return src.ep.map((ep, i) => ({
+        url: ep.u,
+        name: ep.n,
+        globalIndex: i
+    }));
+}
+
+function setupMeta() {
+    const item = playState.currentItem;
+    if (!item) return;
+    metaTitle = item.vod_name || playState.playerTitle || '';
+    metaPoster = item.vod_pic || '';
+    metaTags = [item.type_name, item.vod_year, item.vod_area].filter(Boolean);
+    metaDesc = (item.vod_content || '').replace(/&nbsp;/g, ' ');
+    metaActors = (item.vod_actor || '').split(/[,，]/).filter(Boolean);
+    metaPlayGroups = playState.playGroups || [];
+    metaPlaySrc = playState.playSrc || 0;
+    document.title = metaTitle || 'TSPlayer';
+}
+
+// ==================== 创建 Slide ====================
+function createSlide(ep, epIndex) {
+    const atFirst = epIndex === 0;
+    const atLast = epIndex === episodeList.length - 1;
+    const prevCls = 'trigger-btn prev-ep-btn' + (atFirst ? ' is-disabled' : '');
+    const nextCls = 'trigger-btn next-ep-btn' + (atLast ? ' is-disabled' : '');
+    const prevDisabled = atFirst ? ' disabled' : '';
+    const nextDisabled = atLast ? ' disabled' : '';
+    return '' +
+'<div class="swiper-slide relative overflow-hidden">'+
+'  <div class="xgplayer-blur-bg ui-fade">'+
+'    <img class="xgplayer-blur-img" src="' + metaPoster + '" alt="">'+
+'  </div>'+
+'  <div class="player-box ui-wrap flex" data-ep-index="' + epIndex + '">'+
+'    <div id="xg-' + epIndex + '" class="xg-container" style="width:100%;height:100%"></div>'+
+'    <!-- PC 右侧上下切换 -->'+
+'    <div class="sider-trigger ui-fade">'+
+'      <button class="' + prevCls + '"' + prevDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"><g opacity="1"> <path d="M7.26904 16.3162C6.7251 15.7723 6.7251 14.8904 7.26904 14.3465L12.325 9.29053C12.8689 8.74658 13.7508 8.74658 14.2948 9.29053L14.3061 9.30196L19.3506 14.3465C19.8946 14.8905 19.8946 15.7724 19.3506 16.3163C18.8067 16.8603 17.9248 16.8603 17.3808 16.3163L13.3098 12.2453L9.23884 16.3162C8.69489 16.8602 7.81299 16.8602 7.26904 16.3162Z" fill="currentColor"></path> </g> </svg></button>'+
+'      <button class="' + nextCls + '"' + nextDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"> <g opacity="1"> <path d="M7.26904 9.29059C6.7251 9.83453 6.7251 10.7164 7.26904 11.2604L12.325 16.3163C12.8689 16.8603 13.7508 16.8603 14.2948 16.3163L14.3061 16.3049L19.3506 11.2603C19.8946 10.7164 19.8946 9.83447 19.3506 9.29053C18.8067 8.74658 17.9248 8.74658 17.3808 9.29053L13.3098 13.3616L9.23884 9.29059C8.69489 8.74664 7.81299 8.74665 7.26904 9.29059Z" fill="currentColor"></path> </g> </svg></button>'+
+'    </div>'+
+'    <!-- 左下角信息卡 -->'+
+'    <div class="video-info-bottom z-20 flex flex-col gap-1 ui-fade" style="pointer-events:auto">'+
+'  <span class="video-info-bottom-content-text text-2xl cursor-pointer line-clamp-1 leading-loose">' + metaTitle + '</span>'+
+'  <div class="flex flex-row flex-wrap gap-1">'+
+    metaActors.slice(0,3).map(function(name){return '<div class="rounded-xl py-1 px-3 cursor-pointer" style="background:rgba(255,255,255,0.15)"><span style="font-size:14px">'+name+'</span></div>'}).join('')+
+'  </div>'+
+'  <div class="info-desc-fold mt-1 text-sm" style="color:#ccc" onclick="this.classList.toggle(\'expanded\')" title="点击展开/收起简介">'+
+    metaDesc +
+'  </div>'+
+'  <div class="flex items-center gap-2 mt-2">'+
+'    <span class="content idx_name text-sm" style="color:#ddd">'+ep.name+'</span>'+
+'    <span class="text-xs" style="color:var(--accent)">#'+(metaTags[0]||'')+'</span>'+
+'  </div>'+
+'  <div class="inline-flex max-w-full w-auto flex-row items-center gap-2 rounded-md p-3 mt-2 cursor-pointer open-panel-btn" style="background:rgba(255,255,255,0.08)">'+
+'    <svg class="flex-none" width="16" height="16" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path d="M8 0a1.92 1.92 0 0 0-.765.16L.707 3.205l-.016.008a1.212 1.212 0 0 0 0 2.163l.018.01 6.514 3.018.012.004a1.919 1.919 0 0 0 1.53 0l6.528-3.047.016-.007a1.213 1.213 0 0 0 0-2.164l-.018-.01L8.777.165 8.765.159A1.92 1.92 0 0 0 8 0zm7.921 7.88c.198.43.01.94-.42 1.138l-6.703 3.089-.003.002a1.956 1.956 0 0 1-1.624 0l-.003-.002-6.671-3.09a.857.857 0 0 1 .72-1.555l6.668 3.087a.241.241 0 0 0 .198 0l6.702-3.088a.856.856 0 0 1 1.136.42zm-.42 4.853a.857.857 0 0 0-.716-1.556l-6.702 3.086a.247.247 0 0 1-.198.001l-6.668-3.087a.858.858 0 0 0-.72 1.556l6.67 3.089.004.001a1.954 1.954 0 0 0 1.624 0h.003l6.704-3.089z" fill="#FFF"></path></g></svg>'+
+'    <span class="whitespace-nowrap text-sm">合集(共'+episodeList.length+'集)</span>'+
+'  </div>'+
+'</div>'+
+'<div class="floating-actions ui-fade">'+
+'  <button title="收藏" onclick="event.stopPropagation();toggleFav()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'+
+'  <button class="pp-gear-btn" title="设置" onclick="event.stopPropagation();openSettingsPanel()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>'+
+'</div>';
+'  </div>'+
+'</div>';
+}
+
+// ==================== 播放器初始化 ====================
+function initPlayer(wrapEl, shouldPlay) {
+    const epIndex = Number(wrapEl.dataset.epIndex);
+    const ep = episodeList[epIndex];
+    if (!ep) {
+        console.error('[DEBUG] No episode data for index', epIndex);
+        return null;
+    }
+    const container = wrapEl.querySelector('.xg-container');
+    const containerId = 'xg-' + epIndex;
+    console.log('[DEBUG] initPlayer idx=' + epIndex, 'url=' + ep.url.substring(0,80), 'container size=' + container.offsetWidth + 'x' + container.offsetHeight);
+
+    try {
+        const plugins = window.HlsPlayer ? [window.HlsPlayer] : [];
+        const player = new window.Player({
+            id: containerId,
+            url: ep.url,
+            autoplay: !!shouldPlay,
+            volume: 0.6,
+            download: false,            // 关闭 XGPlayer 自带下载按钮
+            ignores: ['fullscreen'],    // 关闭 XGPlayer 自带全屏(含双击全屏)，视频永不出窗口；最大化由标题栏/窗口按钮控制
+            fluid: true,
+            fit: 'contain',
+            playsinline: true,
+            // height: window.innerHeight,
+            width: window.innerWidth,
+            controls: true,
+            plugins: plugins,
+            controlConfig: {
+                clearScreen: true,
+                playbackRate: [0.5,0.75,1,1.5,2],
+                autoPlayNext: true
+            }
+        });
+        playerMap.set(wrapEl, player);
+        console.log('[DEBUG] XGPlayer created for idx=' + epIndex, 'plugins:', plugins.length);
+
+        player.on('error', function(e) {
+            console.error('[DEBUG] XGPlayer error:', e);
+            // 自动切换下一条线路
+            var nextSrc = playState.playSrc + 1;
+            if (playState.playGroups && nextSrc < playState.playGroups.length) {
+                console.log('[DEBUG] Auto-switching to source', nextSrc);
+                rebuildAll(nextSrc);
+            }
+        });
+
+        player.on('canplay', function() {
+            if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return; // 仅当前集才按视频比例调整窗口
+            var videoEl = container.querySelector('video');
+            if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
+                console.log('[DEBUG] Video size:', videoEl.videoWidth, 'x', videoEl.videoHeight);
+                if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
+                    window.pywebview.api.resize_to_aspect(videoEl.videoWidth, videoEl.videoHeight);
+                }
+            }
+        });
+
+        // 清屏
+        player.on('clearScreen', function(flag) {
+            clearScreenState = flag;
+            var allUi = wrapEl.querySelectorAll('.ui-fade');
+            allUi.forEach(function(el) {
+                el.style.opacity = flag ? '0' : '1';
+                el.style.pointerEvents = flag ? 'none' : 'auto';
+            });
+            var topLabel = document.getElementById('topEpLabel');
+            if (topLabel) {
+                topLabel.style.opacity = flag ? '0' : '1';
+                topLabel.style.pointerEvents = flag ? 'none' : 'auto';
+            }
+        });
+
+        // 合集按钮 → 打开右侧面板
+        var openBtn = wrapEl.querySelector('.open-panel-btn');
+        if (openBtn) {
+            openBtn.onclick = function() { renderSidePanel(); togglePanel(true); };
+        }
+
+        // 右侧上下切换按钮
+        var prevBtn = wrapEl.querySelector('.prev-ep-btn');
+        var nextBtn = wrapEl.querySelector('.next-ep-btn');
+        if (prevBtn) prevBtn.onclick = function() { if (epIndex > 0) verticalSwiper.slideTo(epIndex - 1); };
+        if (nextBtn) nextBtn.onclick = function() { if (epIndex < episodeList.length - 1) verticalSwiper.slideTo(epIndex + 1); };
+
+        // 播放结束自动下一集（受「连播」开关控制）
+        player.on('ended', function() {
+            if (autoNextEnabled && epIndex < episodeList.length - 1) verticalSwiper.slideTo(epIndex + 1);
+        });
+
+        // 倍速同步
+        if (playState.playSpeed && playState.playSpeed !== '1') {
+            try { player.playbackRate = parseFloat(playState.playSpeed); } catch(e) {}
+        }
+
+        return player;
+    } catch(e) {
+        console.error('[DEBUG] XGPlayer init failed:', e);
+        return null;
+    }
+}
+
+// ==================== 右侧面板 ====================
+function renderSidePanel() {
+    document.getElementById('panelPoster').src = metaPoster;
+    document.getElementById('panelTitle').innerText = metaTitle;
+
+    var tagBox = document.getElementById('panelTags');
+    tagBox.innerHTML = metaTags.map(function(t) {
+        return '<span class="px-2 py-1 rounded text-sm">#'+t+'</span>';
+    }).join('');
+
+    document.getElementById('panelDesc').innerText = metaDesc;
+
+    var actorBox = document.getElementById('panelActor');
+    actorBox.innerHTML = metaActors.map(function(name) {
+        return '<div class="px-3 py-2 rounded-xl text-base"><span>'+name+'</span></div>';
+    }).join('');
+
+    // 线路切换
+    var srcWrap = document.getElementById('panelSourceWrap');
+    var srcBox = document.getElementById('panelSources');
+    if (metaPlayGroups.length > 1) {
+        srcWrap.style.display = 'block';
+        srcBox.innerHTML = metaPlayGroups.map(function(g, i) {
+            var style = i === playState.playSrc ? 'background:var(--accent-strong);color:#16140f' : 'background:rgba(255,255,255,0.08);color:var(--text-dim)';
+            return '<button class="px-4 py-2 rounded-lg text-sm font-medium src-switch-btn" data-src="'+i+'" style="'+style+'">'+g.sn+'</button>';
+        }).join('');
+        srcBox.querySelectorAll('.src-switch-btn').forEach(function(btn) {
+            btn.onclick = function() {
+                var idx = Number(btn.dataset.src);
+                if (idx === playState.playSrc) return;
+                playState.playSrc = idx;
+                rebuildAll(idx);
+                togglePanel(false);
+            };
+        });
+    } else {
+        srcWrap.style.display = 'none';
+    }
+
+    // 总集数
+    document.getElementById('totalEp').innerText = '共'+episodeList.length+'集';
+
+    // 分页标签
+    var tabWrap = document.getElementById('tabWrap');
+    tabWrap.innerHTML = '';
+    var groupTotal = Math.ceil(episodeList.length / 30);
+    if (groupTotal > 1) {
+        for (var g = 0; g < groupTotal; g++) {
+            var s = g * 30 + 1;
+            var e = Math.min((g + 1) * 30, episodeList.length);
+            var tab = document.createElement('button');
+            tab.className = 'text-sm whitespace-nowrap transition-colors';
+            tab.style.cssText = g === 0 ? 'color:var(--accent-strong);opacity:1' : 'color:var(--text-muted);opacity:0.6';
+            tab.dataset.group = g;
+            tab.innerText = s + '~' + e;
+            tabWrap.appendChild(tab);
+            tab.onclick = function() {
+                tabWrap.querySelectorAll('button').forEach(function(t) {
+                    t.style.cssText = 'color:#ddd;opacity:0.6';
+                });
+                this.style.cssText = 'color:var(--accent-strong);opacity:1';
+                renderEpGrid(Number(this.dataset.group));
+            };
+        }
+    }
+
+    renderEpGrid(0);
+}
+
+function renderEpGrid(groupIdx) {
+    var grid = document.getElementById('epGrid');
+    grid.innerHTML = '';
+    var start = groupIdx * 30;
+    var end = Math.min((groupIdx + 1) * 30, episodeList.length);
+    var curIdx = verticalSwiper ? verticalSwiper.activeIndex : playState.playEp;
+    for (var i = start; i < end; i++) {
+        var ep = episodeList[i];
+        var isActive = i === curIdx;
+        var btn = document.createElement('button');
+        btn.style.cssText = isActive
+            ? 'border-color:var(--accent-strong);background:rgba(212,168,90,0.20);color:#f6efe0'
+            : 'border-color:var(--line);background:rgba(255,255,255,0.06);color:var(--text-dim)';
+        btn.className = 'ep-item py-2 rounded text-center text-sm border cursor-pointer';
+        btn.innerText = ep.name.replace(/第|集/g, '');
+        btn.dataset.epIndex = i;
+        grid.appendChild(btn);
+        btn.onclick = function() {
+            togglePanel(false);
+            verticalSwiper.slideTo(Number(this.dataset.epIndex));
+        };
+    }
+}
+
+function togglePanel(show) {
+    var panel = document.querySelector('.tiktok-right-panel-2');
+    if (show) panel.classList.add('is-open');
+    else panel.classList.remove('is-open');
+}
+
+// ==================== 批量渲染 ====================
+var renderedSlides = 0;   // 已加入 DOM 的 slide 数量（与播放器是否初始化无关）
+function renderBatch(start, count) {
+    var wrap = document.getElementById('swiperWrapper');
+    var end = Math.min(start + count, episodeList.length);
+    for (var i = start; i < end; i++) {
+        wrap.insertAdjacentHTML('beforeend', createSlide(episodeList[i], i));
+        renderedSlides++;
+    }
+    verticalSwiper.update();
+}
+
+// 预渲染相邻集（±1）确保滑动后立即可见；仅当前集播放，远离(>2)的销毁释放。
+function activateActiveSlide() {
+    var actIdx = verticalSwiper ? verticalSwiper.activeIndex : 0;
+    currentActiveIndex = actIdx;
+
+    var boxes = document.querySelectorAll('.player-box');
+    boxes.forEach(function(box) {
+        var idx = Number(box.dataset.epIndex);
+        var dist = Math.abs(idx - actIdx);
+        if (dist <= 1) {
+            // 预渲染相邻集（±1）：当前集真正播放，邻集先建好以便切到时不再空白
+            if (!playerMap.has(box)) initPlayer(box, dist === 0);
+        } else if (dist > 2) {
+            // 远离当前集的播放器销毁释放，回滚到此处会重新初始化
+            var old = playerMap.get(box);
+            if (old) { try { old.destroy(); } catch (e) {} playerMap.delete(box); }
+        }
+    });
+
+    // 仅当前集播放，其它（含已预渲染的邻集）暂停——隐藏分集不播放
+    activePlayer = null;
+    playerMap.forEach(function(p, box) {
+        var idx = Number(box.dataset.epIndex);
+        if (idx === actIdx) {
+            activePlayer = p;
+            p.play().catch(function() {});
+        } else {
+            try { p.pause(); } catch (e) {}
+        }
+    });
+}
+
+function updateTopEpLabel() {
+    var idx = verticalSwiper ? verticalSwiper.activeIndex : 0;
+    var el = document.getElementById('topEpLabel');
+    if (el) el.innerText = '第 ' + (idx + 1) + ' 集';
+}
+
+// ==================== 重建全部 Slide（切换线路） ====================
+function rebuildAll(targetSrcIdx) {
+    // 销毁所有播放器
+    playerMap.forEach(function(p) { try { p.destroy(); } catch(e) {} });
+    playerMap.clear();
+    activePlayer = null;
+
+    // 重建列表
+    playState.playSrc = targetSrcIdx;
+    playState.playEp = 0;
+    episodeList = buildEpisodeList();
+
+    // 清空并重建 Swiper
+    renderedSlides = 0;
+    verticalSwiper.removeAllSlides();
+    renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
+
+    // 跳转到第一集
+    verticalSwiper.slideTo(0, 0);
+    setTimeout(function() {
+        activateActiveSlide();
+        updateTopEpLabel();
+    }, 400);
+}
+
+// ==================== 返回按钮 ====================
+function goBack() {
+    if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
+        window.pywebview.api.show_main_window();
+        window.pywebview.api.close_player();
+    } else {
+        window.close();
+    }
+}
+
+function toggleFav() {
+    var favKey = 'cms_popout_fav';
+    var favList = [];
+    try { favList = JSON.parse(localStorage.getItem(favKey) || '[]'); } catch(e) {}
+    var item = playState.currentItem;
+    if (!item) return;
+    var idx = favList.findIndex(function(f) { return String(f.vod_id) === String(item.vod_id); });
+    var btn = document.querySelector('.floating-actions button:first-child svg');
+    if (idx > -1) {
+        favList.splice(idx, 1);
+        if (btn) btn.setAttribute('fill', 'none');
+    } else {
+        favList.unshift(item);
+        if (btn) btn.setAttribute('fill', 'currentColor');
+    }
+    localStorage.setItem(favKey, JSON.stringify(favList));
+}
+
+// ==================== 播放设置（连播 / 翻页） ====================
+var autoNextEnabled = true;            // 由 ppSettings.autoNext 派生，供 ended 事件读取
+var ppSettings = { pagination: true, autoNext: true };
+
+function loadPlayerSettings() {
+    try {
+        var raw = localStorage.getItem('cms_player_settings');
+        if (raw) {
+            var s = JSON.parse(raw);
+            ppSettings.pagination = s.pagination !== false;
+            ppSettings.autoNext = s.autoNext !== false;
+        }
+    } catch (e) {}
+    autoNextEnabled = ppSettings.autoNext;
+}
+function savePlayerSettings() {
+    try { localStorage.setItem('cms_player_settings', JSON.stringify(ppSettings)); } catch (e) {}
+}
+function applyPlayerSettings() {
+    var tabWrap = document.getElementById('tabWrap');
+    if (tabWrap) tabWrap.style.display = ppSettings.pagination ? '' : 'none';
+    var tp = document.getElementById('ppTogglePagination');
+    var ta = document.getElementById('ppToggleAutoNext');
+    if (tp) tp.classList.toggle('on', ppSettings.pagination);
+    if (ta) ta.classList.toggle('on', ppSettings.autoNext);
+}
+function toggleSetting(key) {
+    if (key === 'pagination') ppSettings.pagination = !ppSettings.pagination;
+    else if (key === 'autoNext') { ppSettings.autoNext = !ppSettings.autoNext; autoNextEnabled = ppSettings.autoNext; }
+    savePlayerSettings();
+    applyPlayerSettings();
+}
+
+function openSettingsPanel() {
+    renderSidePanel();
+    applyPlayerSettings();
+    togglePanel(true);
+}
+
+// ==================== 入口 ====================
+console.log('[DEBUG] Player page loaded, starting state fetch...');
+loadState().then(function(state) {
+    console.log('[DEBUG] State loaded, playSrc=' + state.playSrc + ' playEp=' + state.playEp);
+    playState = state;
+    loadPlayerSettings();
+    setupMeta();
+    episodeList = buildEpisodeList();
+    console.log('[DEBUG] episodeList length=' + episodeList.length, 'first ep:', episodeList[0]);
+
+    // 初始化 Swiper
+    verticalSwiper = new Swiper('.verticalSwiper', {
+        direction: 'vertical',
+        mousewheel: true,
+        keyboard: { enabled: true },
+        slidesPerView: 1,
+        spaceBetween: 0,
+        loop: false,
+        speed: 350,
+        on: {
+            slideChange: function() {
+                activateActiveSlide();
+                togglePanel(false);
+                updateTopEpLabel();
+
+                var idx = verticalSwiper.activeIndex;
+                playState.playEp = idx;
+
+                // 恢复收藏图标状态
+                var favKey = 'cms_popout_fav';
+                var favList = [];
+                try { favList = JSON.parse(localStorage.getItem(favKey) || '[]'); } catch(e) {}
+                var item = playState.currentItem;
+                var isFav = item && favList.some(function(f) { return String(f.vod_id) === String(item.vod_id); });
+                var favBtn = document.querySelector('.floating-actions button:first-child svg');
+                if (favBtn) favBtn.setAttribute('fill', isFav ? 'currentColor' : 'none');
+
+                // 临近末尾时懒加载更多 slide（以已渲染数量为准，避免与已销毁的播放器计数混淆）
+                if (idx >= episodeList.length - 3 && renderedSlides < episodeList.length) {
+                    renderBatch(renderedSlides, 7);
+                }
+            }
+        }
+    });
+
+    console.log('[DEBUG] Swiper created, rendering initial batch...');
+    renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
+    applyPlayerSettings();
+    var targetIdx = Math.min(playState.playEp || 0, episodeList.length - 1);
+    console.log('[DEBUG] sliding to targetIdx=' + targetIdx);
+    if (targetIdx > 0) {
+        verticalSwiper.slideTo(targetIdx, 0);
+    }
+    setTimeout(function() {
+        activateActiveSlide();
+        console.log('[DEBUG] autoplay activePlayer=', !!activePlayer);
+        updateTopEpLabel();
+    }, 400);
+}).catch(function(err) {
+    console.error('[DEBUG] loadState failed:', err);
+    document.getElementById('swiperWrapper').innerHTML = '<div class="swiper-slide flex items-center justify-center text-gray-500 text-sm">' + err.message + '</div>';
+    verticalSwiper = new Swiper('.verticalSwiper', { direction: 'vertical' });
+});
+
+// 关闭面板
+document.querySelector('.btn-close-right-panel-2').addEventListener('click', function() { togglePanel(false); });
+
+// ==================== 自定义标题栏 + 边缘缩放（无边框播放窗口） ====================
+// 拖拽/缩放统一由 window-chrome.js 经 pywebview 公共 API 驱动（稳定无抖动）；
+// 边缘热区(.win-edge)由 window-chrome.js 自动绑定，这里只处理标题栏拖拽与双击最大化。
+(function() {
+    var bar = document.getElementById('ppTopbar');
+    function onDown(e) {
+        if (e.target.closest('button')) return;       // 按钮不触发拖拽
+        if (e.button !== 0) return;
+        if (window.WindowChrome) window.WindowChrome.titlebarMouseDown(e);
+    }
+    if (bar) {
+        bar.addEventListener('mousedown', onDown);
+        bar.addEventListener('dblclick', function(e) {
+            if (e.target.closest('button')) return;
+            if (window.WindowChrome) window.WindowChrome.toggleMaximize();
+            else if (window.pywebview && window.pywebview.api) window.pywebview.api.toggle_maximize_window();
+        });
+    }
+})();
+
+function winMinP() { if (window.pywebview && window.pywebview.api) window.pywebview.api.minimize_window(); }
+function winMaxP() { if (window.WindowChrome) window.WindowChrome.toggleMaximize(); else if (window.pywebview && window.pywebview.api) window.pywebview.api.toggle_maximize_window(); }
+function winCloseP() { if (window.pywebview && window.pywebview.api) window.pywebview.api.close_window(); }
+
+</script>
+  <script src="/static/js/window-chrome.js"></script>
+
+  <!-- 无边框窗口：边缘缩放热区（仅窗口最外缘 6px，由 window-chrome.js 经 pywebview API 缩放）。样式见下方 <style> -->
+  <style>
+    .win-edge { position: fixed; z-index: 60; touch-action: none; }
+    .win-edge-n { top: 0; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+    .win-edge-s { bottom: 0; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+    .win-edge-w { top: 0; bottom: 0; left: 0; width: 6px; cursor: ew-resize; }
+    .win-edge-e { top: 0; bottom: 0; right: 0; width: 6px; cursor: ew-resize; }
+    .win-edge-nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+    .win-edge-ne { top: 0; right: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+    .win-edge-sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+    .win-edge-se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+  </style>
+  <div class="win-edge win-edge-n" data-hit="12"></div>
+  <div class="win-edge win-edge-s" data-hit="15"></div>
+  <div class="win-edge win-edge-w" data-hit="10"></div>
+  <div class="win-edge win-edge-e" data-hit="11"></div>
+  <div class="win-edge win-edge-nw" data-hit="13"></div>
+  <div class="win-edge win-edge-ne" data-hit="14"></div>
+  <div class="win-edge win-edge-sw" data-hit="16"></div>
+  <div class="win-edge win-edge-se" data-hit="17"></div>
+</body>
+</html>
