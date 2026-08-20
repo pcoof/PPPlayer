@@ -32,6 +32,7 @@ function app() {
         showSearchHist: false,
         showSourceBlacklistPicker: false,
         settingsTab: 'basic',
+        bossKeyListening: false,
         themeList: [
             { id: 'default', name: '主题风格', swatch: 'background:linear-gradient(135deg,#f6f3ec 0 50%,#b0823c 50% 100%)' },
             { id: 'nft', name: 'NFT风格', swatch: 'background:linear-gradient(135deg,#f3eefb 0 50%,#7c3aed 50% 100%)' },
@@ -42,7 +43,8 @@ function app() {
             { id: 'minimal', name: '简约风', swatch: 'background:linear-gradient(135deg,#ffffff 0 50%,#4f7cff 50% 100%)' },
             { id: 'futurism', name: '未来主义', swatch: 'background:linear-gradient(135deg,#eef1f6 0 50%,#2f6bff 50% 100%)' },
             { id: 'pop', name: '波普艺术', swatch: 'background:linear-gradient(135deg,#fff8e1 0 50%,#ff2d55 50% 100%)' },
-            { id: 'cyber1', name: '朋克赛博', swatch: 'background:linear-gradient(135deg,#008d7e 0 50%,#070b16 50% 100%)' }
+            { id: 'cyber1', name: '朋克赛博', swatch: 'background:linear-gradient(135deg,#008d7e 0 50%,#070b16 50% 100%)' },
+            { id: 'ysskin', name: '野兽风格', swatch: 'background:linear-gradient(135deg,#ffd23f 0 50%,#070b16 50% 100%)' }
         ],
         editingIdx: null,
         editingSource: { name: '', url: '' },
@@ -65,9 +67,10 @@ function app() {
         _skip: {},
         _observer: null,
         _urlFetchTimer: null,
+        isMaximized: false,  // 窗口最大化状态，由 WindowChrome.onStateChange 同步
 
         async init() {
-            const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
+            const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
             let saved = {};
             try { saved = await API.loadAllConfig(); } catch (e) { console.warn('load config error:', e); }
 
@@ -84,6 +87,26 @@ function app() {
             this.applyTheme();
             this.applyStyleTheme();
             this.normalizeSourceEnabled();
+
+            // 同步开机自启状态（注册表可能被外部修改）
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.get_autostart) {
+                window.pywebview.api.get_autostart().then(v => { this.cfg.autostart = !!v; }).catch(()=>{});
+            }
+
+            // 同步自定义标题栏的最大化状态到 Alpine（用于最大化按钮图标切换）
+            var self = this;
+            function bindChromeState() {
+                if (window.WindowChrome) {
+                    window.WindowChrome.onStateChange = function(state) {
+                        self.isMaximized = !!state.maximized;
+                    };
+                    // 主动查询一次当前状态
+                    if (window.WindowChrome.syncState) window.WindowChrome.syncState();
+                }
+            }
+            if (window.WindowChrome) bindChromeState();
+            else window.addEventListener('load', bindChromeState);
+
             if (this.sources.length) {
                 const src = this.getActiveSource();
                 if (src && src.name) document.title = src.name;
@@ -107,6 +130,52 @@ function app() {
             };
 
             this.$nextTick(() => this.setupAutoLoad());
+
+            // 暴露组件实例，供播放窗口「编辑 API 源」回调唤起本窗口设置中心
+            window.__app = this;
+            this.applyBossKey();
+        },
+
+        // ── 老板键：捕获组合键 + 注册全局热键 ──
+        startBossKeyCapture() {
+            if (this.bossKeyListening) return;
+            this.bossKeyListening = true;
+            const self = this;
+            // 轻微延迟，避免本次 click 的 keydown 被误捕获
+            setTimeout(() => {
+                const handler = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+                    const parts = [];
+                    if (e.ctrlKey) parts.push('Ctrl');
+                    if (e.altKey) parts.push('Alt');
+                    if (e.shiftKey) parts.push('Shift');
+                    if (e.metaKey) parts.push('Win');
+                    let key = e.key;
+                    if (key === ' ') key = 'Space';
+                    else if (key.length === 1) key = key.toUpperCase();
+                    parts.push(key);
+                    self.cfg.bossKey = parts.join('+');
+                    self.bossKeyListening = false;
+                    window.removeEventListener('keydown', handler, true);
+                    self.saveCfg();
+                    self.applyBossKey();
+                };
+                window.addEventListener('keydown', handler, true);
+            }, 60);
+        },
+
+        resetBossKey() {
+            this.cfg.bossKey = '';
+            this.saveCfg();
+            this.applyBossKey();
+        },
+
+        applyBossKey() {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.set_boss_key) {
+                window.pywebview.api.set_boss_key(this.cfg.bossKey || '');
+            }
         },
 
         _saveTimer: null,
@@ -179,7 +248,7 @@ function app() {
                 this._observer.observe(sentinel);
             }
         },
-
+        // 切换主题
         toggleThemeMode() {
             if (this.cfg.theme === 'auto') this.cfg.theme = 'light';
             else if (this.cfg.theme === 'light') this.cfg.theme = 'dark';
@@ -207,7 +276,43 @@ function app() {
         },
         winMin() { if (window.pywebview && window.pywebview.api) window.pywebview.api.minimize_window(); },
         winMax() { if (window.WindowChrome) { window.WindowChrome.toggleMaximize(); } else if (window.pywebview && window.pywebview.api) window.pywebview.api.toggle_maximize_window(); },
-        winClose() { if (window.pywebview && window.pywebview.api) window.pywebview.api.close_window(); },
+        winClose() {
+            // 关闭到托盘：开启时隐藏主窗口（托盘图标仍可恢复），否则真正退出
+            if (this.cfg.closeToTray && window.pywebview && window.pywebview.api) {
+                if (window.pywebview.api.close_player) window.pywebview.api.close_player();
+                try { window.pywebview.api.hide_window(); } catch(e) {}
+            } else if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.quit_app();
+            }
+        },
+        async toggleAutostart() {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.set_autostart) {
+                const ok = await window.pywebview.api.set_autostart(!!this.cfg.autostart);
+                if (!ok) {
+                    alert('设置开机自启失败，请检查权限。');
+                    this.cfg.autostart = !this.cfg.autostart;
+                }
+            }
+            this.saveCfg();
+        },
+        showPlayerWindow() {
+            // 显示已打开的播放窗口（最小化/隐藏后都能恢复）
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.show_main_window) {
+                // show_main_window 是显示主窗口，这里需要显示播放窗口
+                // 通过 evaluate_js 或专用 API
+                if (window.pywebview.api.show_player_window) {
+                    window.pywebview.api.show_player_window();
+                }
+            }
+        },
+        closePlayingBar() {
+            // 关闭播放窗口并清除当前播放状态
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.close_player) {
+                window.pywebview.api.close_player();
+            }
+            this.currentItem = null;
+            this.playerTitle = '';
+        },
 
         applyTheme() {
             const dark = this.cfg.theme === 'dark' || (this.cfg.theme === 'auto' && matchMedia('(prefers-color-scheme:dark)').matches);
@@ -459,7 +564,7 @@ function app() {
 
         tagVal(field, item) {
             if (!item || !field) return '';
-            const map = { type: item.type_name, hits: item.vod_hits, lang: item.vod_lang, year: item.vod_year, area: item.vod_area, actor: item.vod_actor, director: item.vod_director, tag: item.vod_tag, duration: item.vod_duration, state: item.vod_state, remarks: item.vod_remarks, pubdate: item.vod_pubdate };
+            const map = { type: item.type_name, hits: item.vod_hits, lang: item.vod_lang, year: item.vod_year, area: item.vod_area, actor: item.vod_actor, director: item.vod_director, tag: item.vod_tag, duration: item.vod_duration, state: item.vod_state, remarks: item.vod_remarks, pubdate: item.vod_pubdate, vod_blurb: item.vod_blurb, vod_content: item.vod_content };
             let v = map[field];
             if (v === undefined || v === null) return '';
             return String(v);
@@ -514,7 +619,12 @@ function app() {
         toggleFav(item) {
             const idx = this.fav.findIndex(f => String(f.vod_id) === String(item.vod_id));
             if (idx > -1) this.fav.splice(idx, 1);
-            else this.fav.unshift({ ...item, fav_time: Date.now() });
+            else {
+                this.fav.unshift({ ...item, fav_time: Date.now() });
+                // 按设置中的最大收藏数截断（默认500，可在设置→数据中修改）
+                const max = Number(this.cfg.maxFav) || 500;
+                if (this.fav.length > max) this.fav = this.fav.slice(0, max);
+            }
             this.saveAllDataDebounced();
         },
 
@@ -568,10 +678,30 @@ function app() {
             }
         },
 
+        // 统一导出通道：桌面端(pywebview)走 Python 原生「另存为」，浏览器走 Blob 下载。
+        // 桌面端必须走 API —— WebView2 里 <a download href="blob:..."> 属于浏览器下载通道，
+        // 被 pywebview 拦截（默认 ALLOW_DOWNLOADS=False 直接 Cancel），点了完全没反应。
+        saveJsonText(filename, text) {
+            const api = window.pywebview && window.pywebview.api;
+            if (api && api.save_text_file) {
+                Promise.resolve(api.save_text_file(filename, text)).then(r => {
+                    if (!r) { alert('导出失败：桌面端未返回结果'); return; }
+                    if (r.canceled) return;               // 用户在另存为对话框点了取消
+                    if (r.ok) alert('已导出到：\n' + r.path);
+                    else alert('导出失败：' + (r.error || '未知错误'));
+                }).catch(err => alert('导出失败：' + err));
+                return;
+            }
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        },
+
         exportSources() {
-            const blob = new Blob([JSON.stringify(this.sources, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'cms_sources.json'; a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            this.saveJsonText('cms_sources.json', JSON.stringify(this.sources, null, 2));
         },
 
         importSources(e) {
@@ -597,9 +727,8 @@ function app() {
 
         exportAllData() {
             const data = { cms_cfg: this.cfg, cms_src: this.sources, cms_fav: this.fav, cms_his: this.his, cms_search_hist: this.searchHistory };
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'cms_backup_' + new Date().toISOString().slice(0, 10) + '.json'; a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+            const name = 'cms_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+            this.saveJsonText(name, JSON.stringify(data, null, 2));
         },
 
         importAllData(e) {
@@ -813,6 +942,12 @@ function app() {
             };
             localStorage.setItem('cms_popout_state', JSON.stringify(popoutState));
 
+            // 立即写入播放历史：当前页(index)不内嵌播放器，弹窗式播放由独立窗口负责。
+            // 桌面端独立窗口后续会通过 report_play_progress 回传进度（更新 last_time），
+            // 但浏览器直开 /player 时无 pywebview、report_play_progress 不会触发，
+            // 故在此直接记录一次，确保「打开即入历史」在两种环境都成立（按 vod_id 去重，不会重复）。
+            this.saveHistory(0);
+
             // 弹出播放窗口
             if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
                 window.pywebview.api.open_player_window(JSON.stringify(popoutState));
@@ -839,7 +974,8 @@ function app() {
             if (!this.currentItem) return;
             this.his = this.his.filter(h => String(h.vod_id) !== String(this.currentItem.vod_id));
             this.his.unshift({ ...this.currentItem, last_watch_time: Date.now(), last_source_index: this.playSrc, last_episode_index: this.playEp, last_time: currentTime || 0 });
-            if (this.his.length > 200) this.his = this.his.slice(0, 200);
+            const max = Number(this.cfg.maxHistory) || 200;
+            if (this.his.length > max) this.his = this.his.slice(0, max);
             this.saveAllDataDebounced();
         },
 
@@ -849,7 +985,15 @@ function app() {
             document.body.removeChild(ta);
         },
 
-        destroyPlayers() { Player.destroy(); },
+        destroyPlayers() {
+            // 首页(index.html)只负责「打开独立播放窗口 + 记录历史」，并不内嵌播放器，
+            // 因此不会加载 XGPlayer，window.Player 在此页恒为 undefined。
+            // 直接调用 Player.destroy() 会抛 ReferenceError 并中断 openPlayer 流程，
+            // 故先判空再销毁（独立播放窗口页 player.html 仍会正常加载 Player）。
+            if (typeof Player !== 'undefined' && Player) {
+                try { Player.destroy(); } catch (e) { /* 忽略已销毁等情况 */ }
+            }
+        },
 
         closePlayer() {
             this.showPlayer = false; this.destroyPlayers();

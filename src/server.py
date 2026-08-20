@@ -1,17 +1,38 @@
 """Flask 应用 — 挂载所有路由"""
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, redirect
+from urllib.parse import urlparse
 import requests as req
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import os
 import uuid
 
-from .proxy import proxy_request
 from .parser.sniffer import parse_play_url
-from .parser.m3u8_filter import filter_m3u8, filter_m3u8_text
+from .parser.m3u8_filter import filter_m3u8, filter_m3u8_text, USER_AGENT
 from .cms.detector import detect_cms
 from .config_store import load_all, save_all
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+# ── 共享 HTTP 连接池（核心优化）───────────────────────────
+# 以往每个 .ts 切片都用 req.get() 新建连接 → 每片都要重新 DNS+TCP+TLS 握手，
+# 同主机（同一 CDN）却无法复用 keep-alive，导致 HLS 预取永远慢半拍、播放卡顿。
+# 用带连接池的 Session：同一 CDN 主机的切片复用长连接，消除每次握手开销；
+# 配合重试适配器，偶发抖动自动恢复，不再因单片失败而阻塞整条缓冲链。
+_MEDIA_SESSION = req.Session()
+_MEDIA_ADAPTER = HTTPAdapter(
+    pool_connections=40,
+    pool_maxsize=40,
+    max_retries=Retry(
+        total=3,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD"],
+    ),
+)
+_MEDIA_SESSION.mount("http://", _MEDIA_ADAPTER)
+_MEDIA_SESSION.mount("https://", _MEDIA_ADAPTER)
 
 # 弹出窗口播放状态中转（pywebview 独立窗口 localStorage 不共享）
 _popout_state = None
@@ -44,57 +65,89 @@ def create_app() -> Flask:
     def index():
         return send_from_directory(STATIC_DIR, "index.html")
 
-    # ── API: HTTP 代理转发 ───────────────────────────────────
-    @app.route("/api/proxy")
-    def api_proxy():
-        return proxy_request()
-
-    # ── API: M3U8 代理 + 广告过滤 ────────────────────────────
-    @app.route("/api/m3u8")
-    def api_m3u8():
+    # ── API: 播放列表代理（后端拉取 + 智能去广告 + 内部 URL 改写为本服务代理）──
+    # 浏览器只与本服务同源通信（规避 CDN 无 CORS 头导致的跨域失败）；
+    # 302 到 .m3u8 结尾地址，让播放器据此识别为 HLS。嵌套的变体/切片均改写为 /api/hls、/api/media。
+    @app.route("/api/hls")
+    def api_hls():
         raw_url = request.args.get("url", "")
-        skip_str = request.args.get("skip", "0")
         if not raw_url:
             return jsonify({"error": "Missing url parameter"}), 400
-
-        try:
-            skip = max(0, int(skip_str))
-        except (ValueError, TypeError):
-            skip = 0
-
-        # 智能去广告开关（设置中心 -> 基础 -> 智能去广告），默认开启
         cfg = load_all()
         smart = (cfg.get("cms_cfg") or {}).get("smartAdRemove", True)
-
         try:
-            text = filter_m3u8(raw_url, skip=skip, smart=smart)
-            return text, 200, {
-                "Content-Type": "application/vnd.apple.mpegurl; charset=utf-8",
-                "Cache-Control": "no-store",
-                "Access-Control-Allow-Origin": "*",
-            }
+            text = filter_m3u8(raw_url, skip=0, smart=smart)
+            sid = uuid.uuid4().hex
+            _m3u8_store[sid] = text
+            if len(_m3u8_store) > 500:   # 会话级暂存，防止无限增长
+                _m3u8_store.clear()
+            return redirect("/api/serve_m3u8/" + sid + ".m3u8", code=302)
         except Exception as e:
             return jsonify({"error": str(e)}), 502
 
-    # ── API: M3U8 预处理（浏览器已拉取，后端过滤+暂存，返回 .m3u8 服务地址）──
-    @app.route("/api/m3u8_prepared", methods=["POST"])
-    def api_m3u8_prepared():
+    # ── API: 媒体字节代理（切片 .ts/.m4s、密钥 .key、字幕 .vtt 等）──
+    # 转发 Range 请求以支持拖动进度；同源返回并带 ACAO:*，彻底消除 TS 切片的跨域失败。
+    # 关键：复用模块级连接池 Session（同一 CDN 长连接复用，消除每片 TLS 握手），流式转发。
+    @app.route("/api/media")
+    def api_media():
+        raw_url = request.args.get("url", "")
+        if not raw_url:
+            return jsonify({"error": "Missing url parameter"}), 400
+        url = raw_url if raw_url.startswith("http") else "https:" + raw_url
         try:
-            data = request.get_json(force=True) or {}
-            text = data.get("text", "")
-            base_url = data.get("base_url", "")
-            smart = bool(data.get("smart", True))
-            if not text:
-                return jsonify({"error": "Missing text"}), 400
-            cfg = load_all()
-            if (cfg.get("cms_cfg") or {}).get("smartAdRemove", True) is False:
-                smart = False
-            out = filter_m3u8_text(text, base_url=base_url, smart=smart)
-            sid = uuid.uuid4().hex
-            _m3u8_store[sid] = out
-            return jsonify({"url": "/api/serve_m3u8/" + sid + ".m3u8"})
+            host = urlparse(url).hostname or ""
+            origin = f"{urlparse(url).scheme}://{host}"
+            headers = {
+                "User-Agent": USER_AGENT,
+                "Accept": "*/*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Referer": origin,
+                "Origin": origin,
+            }
+            rng = request.headers.get("Range")
+            if rng:
+                headers["Range"] = rng
+            # 复用连接池：同一 CDN 主机自动 keep-alive，避免每片重新握手
+            resp = _MEDIA_SESSION.get(
+                url, headers=headers, timeout=(8, 60),
+                allow_redirects=True, stream=True,
+            )
+            ct = resp.headers.get("Content-Type") or "application/octet-stream"
+            out_headers = {
+                "Content-Type": ct,
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "public, max-age=300",
+                "Accept-Ranges": "bytes",
+            }
+            if resp.status_code == 206:
+                cr = resp.headers.get("Content-Range")
+                if cr:
+                    out_headers["Content-Range"] = cr
+                cl = resp.headers.get("Content-Length")
+                if cl:
+                    out_headers["Content-Length"] = cl
+                else:
+                    out_headers.pop("Content-Length", None)
+            else:
+                cl = resp.headers.get("Content-Length")
+                if cl:
+                    out_headers["Content-Length"] = cl
+                else:
+                    out_headers.pop("Content-Length", None)
+            def gen():
+                try:
+                    # 256KB 分块，减少 yield 次数、降低 per-chunk 调度开销
+                    for chunk in resp.iter_content(262144):
+                        if chunk:
+                            yield chunk
+                finally:
+                    try:
+                        resp.close()   # 归还连接到池中，供下一切片复用
+                    except Exception:
+                        pass
+            return Response(gen(), status=resp.status_code, headers=out_headers)
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            return str(e), 502
 
     # ── API: 提供已暂存的过滤后播放列表（URL 以 .m3u8 结尾，播放器据此识别为 HLS）──
     @app.route("/api/serve_m3u8/<sid>")

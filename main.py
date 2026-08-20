@@ -4,6 +4,7 @@ import sys
 import os
 import json
 import ctypes
+import time
 import threading
 import webview
 from urllib import parse
@@ -11,6 +12,48 @@ from src.server import create_app
 
 FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
+
+
+def ui_invoke(window, fn):
+    """把「触碰原生 WinForms 控件」的操作强制切回 UI(STA) 线程执行，返回 fn 的结果。
+
+    为什么必须这样做：
+    pywebview 的 js_api 回调运行在 WebView2 的调度线程上，不是承载 WinForms Form 的
+    UI 线程。若在该线程直接改 native.FormBorderStyle / native.SetBounds，WinForms 会
+    重建窗口句柄（RecreateHandle），把子控件 WebView2 的 HWND 剥离，之后就抛：
+        WebView2 initialization failed with exception:
+        (0x80010108) 被调用的对象已与其客户端断开连接 (RPC_E_DISCONNECTED)
+    表现正是「运行一段时间后窗口不见了、进程还在」。
+    pywebview 自己的 move/resize/show/hide/maximize 全都用 self.Invoke(...) 做线程编组，
+    这里为自定义的原生操作补齐同样的保护。
+    """
+    native = getattr(window, 'native', None)
+    box = {}
+
+    def _run():
+        try:
+            box['v'] = fn()
+        except Exception as e:
+            box['e'] = e
+
+    if native is None:
+        _run()
+    else:
+        try:
+            if native.InvokeRequired:
+                from System import Action
+                native.Invoke(Action(_run))
+            else:
+                _run()
+        except Exception as e:
+            print(f"[ui_invoke] marshal to UI thread failed: {e}")
+            if 'v' not in box and 'e' not in box:
+                _run()
+
+    if 'e' in box:
+        print(f"[ui_invoke] call failed: {box['e']}")
+        return None
+    return box.get('v')
 
 
 def run_flask():
@@ -25,6 +68,8 @@ def run_flask():
         port=FLASK_PORT,
         debug=False,
         use_reloader=False,
+        threaded=True,   # 并发处理：播放起始时浏览器会同时请求页面/静态资源/m3u8(后端拉CDN)/变体，
+                         # 单线程会串行排队→CDN 稍慢就表现为「一直加载不出」；开启后并发，消除阻塞。
     )
 
 
@@ -38,19 +83,21 @@ class PlayerWindow:
         self._player_window = None
         self._main_window = main_window
         self._wnd_proc_refs = []  # 持有 WndProc 子类引用，防止被 GC
+        self.bosskey = None       # BossKeyManager（老板键全局热键）
+        self.tray = None          # TrayManager（系统托盘）
 
     def _run_on_ui(self, func, *args, **kwargs):
-        """在 UI 线程上执行窗口操作"""
-        try:
-            if self._player_window and hasattr(self._player_window, 'native'):
-                hwnd = self._player_window.native.Handle
-                WM_USER = 0x0400
+        """调用 pywebview 自带的窗口方法（show / hide / restore / destroy …）。
 
-                if hasattr(self._player_window, 'evaluate_js'):
-                    self._player_window.evaluate_js('void(0)')
-        except Exception:
-            pass
+        注意：这里**不能**再套一层 ui_invoke。pywebview 的窗口方法内部已经用
+        Form.Invoke 编组到 UI 线程；而 destroy / evaluate_js 之类还会等待「由 UI
+        线程投递的回调」置位信号量 —— 若在 UI 线程上同步调用它们，UI 线程既要等
+        信号又无法泵消息，会直接死锁。所以自定义的原生操作用 ui_invoke，
+        pywebview 自己的窗口方法则直接调用。
 
+        原实现为了「唤醒」窗口顺手调了一次 evaluate_js('void(0)')：那是一次阻塞式
+        IPC，窗口正在销毁 / WebView2 无响应时会把调用方一起拖住，已移除。
+        """
         return func(*args, **kwargs)
 
     def _load_geometry(self):
@@ -85,6 +132,17 @@ class PlayerWindow:
                 self._run_on_ui(lambda: (
                     self._main_window.show(),
                     self._main_window.restore()
+                ))
+            except Exception:
+                pass
+
+    def show_player_window(self):
+        """JS API: 显示并聚焦播放窗口（最小化/隐藏后恢复）。"""
+        if self._player_window:
+            try:
+                self._run_on_ui(lambda: (
+                    self._player_window.show(),
+                    self._player_window.restore()
                 ))
             except Exception:
                 pass
@@ -164,7 +222,7 @@ class PlayerWindow:
             pass
 
     def close_player(self):
-        """关闭播放窗口"""
+        """关闭播放窗口，并通知主窗口清除正在播放状态（否则左上角标题残留）。"""
         if self._player_window:
             try:
                 self._save_geometry()
@@ -172,6 +230,412 @@ class PlayerWindow:
             except Exception:
                 pass
             self._player_window = None
+        # 通知主窗口清除 currentItem / 正在播放标题栏
+        w = self._main_window
+        if w:
+            try:
+                w.evaluate_js(
+                    "if(window.__app){window.__app.currentItem=null;"
+                    "window.__app.playerTitle='';}"
+                )
+            except Exception:
+                pass
+
+    def open_main_settings(self, tab="sources"):
+        """JS API：唤起主窗口设置中心并切到指定标签页（播放窗口「编辑 API 源」调用）。"""
+        w = self._main_window
+        if not w:
+            return
+        try:
+            w.show()
+            w.restore()
+            js = "if(window.__app){window.__app.showSettings=true;window.__app.settingsTab=%s;}" % repr(str(tab))
+            w.evaluate_js(js)
+        except Exception:
+            pass
+
+
+class BossKeyManager:
+    """老板键 — 全局 OS 热键，按下隐藏/再次按下显示主窗口与播放窗口。
+
+    用 ctypes + user32.RegisterHotKey 注册线程级热键，并由独立守护线程跑
+    GetMessage 消息循环接收 WM_HOTKEY（必须在「注册热键的同一线程」里收消息，
+    因此注册动作也放在该线程内完成，主线程只通过 PostThreadMessage 通知重载）。
+    避免引入额外依赖；非 Windows 平台优雅降级（不可用）。
+    """
+
+    WM_HOTKEY = 0x0312
+    WM_REREG = 0x0400 + 1
+
+    MOD = {"ctrl": 2, "control": 2, "alt": 1, "shift": 4, "win": 8, "meta": 8}
+
+    def __init__(self, manager):
+        self._mgr = manager
+        self._ctypes = ctypes
+        self._user32 = None
+        self._kernel32 = None
+        try:
+            self._user32 = ctypes.windll.user32
+            self._kernel32 = ctypes.windll.kernel32
+        except Exception:
+            self._user32 = None
+        self._combo = ""
+        self._hotkey_id = 1
+        self._mods = 0
+        self._vk = 0
+        self._thread = None
+        self._thread_id = None
+        self._hidden = False
+
+    # —— 解析 "Ctrl+Shift+H" 类组合为 (modifiers, virtualKey) ——
+    def _parse(self, combo):
+        parts = [p.strip().lower() for p in (combo or "").split("+") if p.strip()]
+        mods = 0
+        vk = None
+        for p in parts:
+            if p in self.MOD:
+                mods |= self.MOD[p]
+            elif len(p) == 1 and p.isalpha():
+                vk = ord(p.upper())
+            elif len(p) == 1 and p.isdigit():
+                vk = ord(p)
+            elif p.startswith("f") and p[1:].isdigit():
+                n = int(p[1:])
+                if 1 <= n <= 12:
+                    vk = 0x70 + (n - 1)
+            else:
+                vk = None
+        return mods, vk
+
+    def _do_register(self):
+        self._unregister()
+        mods, vk = self._parse(self._combo)
+        if vk is None:
+            return
+        try:
+            if self._user32.RegisterHotKey(None, self._hotkey_id, mods, vk):
+                self._mods, self._vk = mods, vk
+        except Exception:
+            pass
+
+    def _unregister(self):
+        if self._user32 and self._vk:
+            try:
+                self._user32.UnregisterHotKey(None, self._hotkey_id)
+            except Exception:
+                pass
+        self._vk = 0
+
+    def set_combo(self, combo):
+        """主线程调用：设置老板键组合（空串即清除）。"""
+        if not self._user32:
+            return
+        self._combo = combo or ""
+        if self._thread is None:
+            self._start_thread()
+        else:
+            try:
+                self._user32.PostThreadMessageW(self._thread_id, self.WM_REREG, 0, 0)
+            except Exception:
+                pass
+
+    def _start_thread(self):
+        import threading
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _loop(self):
+        from ctypes.wintypes import MSG
+        user32 = self._user32
+        self._thread_id = self._kernel32.GetCurrentThreadId()
+        self._do_register()  # 在「注册线程」内完成首次注册（WM_HOTKEY 会回到本线程队列）
+        m = MSG()
+        while True:
+            r = user32.GetMessageW(self._ctypes.byref(m), None, 0, 0)
+            if r == 0:
+                break
+            if m.message == self.WM_HOTKEY:
+                self._toggle()
+            elif m.message == self.WM_REREG:
+                self._do_register()
+            user32.TranslateMessage(self._ctypes.byref(m))
+            user32.DispatchMessageW(self._ctypes.byref(m))
+
+    def _toggle(self):
+        try:
+            main = self._mgr._main_window
+            player = self._mgr._player_window
+            if not self._hidden:
+                if main:
+                    try:
+                        main.hide()
+                    except Exception:
+                        pass
+                if player:
+                    try:
+                        player.hide()
+                    except Exception:
+                        pass
+                self._hidden = True
+            else:
+                if main:
+                    try:
+                        main.show()
+                        main.restore()
+                    except Exception:
+                        try:
+                            main.show()
+                        except Exception:
+                            pass
+                if player:
+                    try:
+                        player.show()
+                        player.restore()
+                    except Exception:
+                        try:
+                            player.show()
+                        except Exception:
+                            pass
+                self._hidden = False
+        except Exception:
+            pass
+
+
+class TrayManager:
+    """系统托盘图标 + 右键菜单（用 .NET NotifyIcon，pywebview 已依赖 .NET，无需额外安装）。
+
+    右键菜单：显示窗口 | 网页打开 | GitHub | 退出
+    单击托盘图标 → 显示/隐藏主窗口
+    主窗口关闭时 → 最小化到托盘（受设置 closeToTray 控制）
+    """
+
+    GITHUB_URL = "https://github.com"
+
+    def __init__(self, manager):
+        self._mgr = manager
+        self._notify = None
+        self._menu = None
+        self._ctx = None  # WindowsFormsContext
+
+    def create(self):
+        """创建托盘图标。
+
+        必须在 UI(STA) 线程调用：NotifyIcon 依赖 WinForms 的消息循环，
+        在工作线程创建的典型表现就是「托盘图标根本不出现 / 菜单点了没反应」。
+        webview.start(func=...) 的回调跑在工作线程，因此 main() 里等窗口句柄
+        就绪后再 Invoke 到 UI 线程调用本方法（见 _on_loaded）。
+        """
+        if self._notify is not None:
+            return True
+        try:
+            import System.Windows.Forms as WinForms
+            # SystemIcons 在 System.Drawing 命名空间下，WinForms 上并没有这个属性；
+            # 之前写成 WinForms.SystemIcons.Application，一旦 ExtractAssociatedIcon 失败
+            # 就会抛 AttributeError 被外层吞掉 → 托盘整体创建失败、图标永不出现。
+            from System.Drawing import Icon, SystemIcons
+
+            self._menu = WinForms.ContextMenu()
+
+            # 显示窗口
+            mi_show = WinForms.MenuItem("显示主窗口")
+            mi_show.Click += self._on_show
+            self._menu.MenuItems.Add(mi_show)
+
+            # 网页打开（在默认浏览器打开当前 web 地址）
+            mi_web = WinForms.MenuItem("网页打开")
+            mi_web.Click += self._on_web_open
+            self._menu.MenuItems.Add(mi_web)
+
+            # GitHub
+            mi_github = WinForms.MenuItem("GitHub")
+            mi_github.Click += self._on_github
+            self._menu.MenuItems.Add(mi_github)
+
+            self._menu.MenuItems.Add("-")
+
+            # 退出
+            mi_exit = WinForms.MenuItem("退出")
+            mi_exit.Click += self._on_exit
+            self._menu.MenuItems.Add(mi_exit)
+
+            self._notify = WinForms.NotifyIcon()
+            self._notify.Text = "TSPlayer"
+            self._notify.ContextMenu = self._menu
+            # 图标：优先取项目自带 ico → 其次可执行文件关联图标 → 最后系统默认应用图标
+            icon = None
+            ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'favicon.ico')
+            if os.path.exists(ico_path):
+                try:
+                    icon = Icon(ico_path)
+                except Exception:
+                    icon = None
+            if icon is None:
+                try:
+                    icon = Icon.ExtractAssociatedIcon(sys.executable)
+                except Exception:
+                    icon = None
+            self._notify.Icon = icon if icon is not None else SystemIcons.Application
+            # 左键单击才切换窗口；右键交给上下文菜单（旧代码用 Click，右键也会触发 → 一右键窗口就被隐藏）
+            self._notify.MouseClick += self._on_tray_mouse_click
+            self._notify.Visible = True
+            print("[Tray] icon created")
+            return True
+        except Exception as e:
+            print(f"[Tray] create failed: {e}")
+            self._notify = None
+            return False
+
+    def _on_show(self, sender, e):
+        self._mgr.show_main_window()
+        self._sync_bosskey(False)
+
+    def _on_web_open(self, sender, e):
+        """在默认浏览器打开 web 端地址。"""
+        try:
+            import webbrowser
+            webbrowser.open(f"http://{FLASK_HOST}:{FLASK_PORT}")
+        except Exception:
+            pass
+
+    def _on_github(self, sender, e):
+        try:
+            import webbrowser
+            webbrowser.open(self.GITHUB_URL)
+        except Exception:
+            pass
+
+    def _on_exit(self, sender, e):
+        """彻底退出：销毁托盘 + 关闭所有窗口 + 退出进程。"""
+        self.destroy()
+        try:
+            if self._mgr._player_window:
+                self._mgr.close_player()
+        except Exception:
+            pass
+        try:
+            if self._mgr._main_window:
+                self._mgr._main_window.destroy()
+        except Exception:
+            pass
+        os._exit(0)
+
+    def _sync_bosskey(self, hidden):
+        """让老板键的隐藏态与托盘操作保持一致，避免下次按老板键方向反了。"""
+        try:
+            if self._mgr.bosskey:
+                self._mgr.bosskey._hidden = bool(hidden)
+        except Exception:
+            pass
+
+    def _on_tray_mouse_click(self, sender, e):
+        """左键单击托盘图标 → 切换主窗口显示/隐藏（右键不处理，留给上下文菜单）。"""
+        try:
+            import System.Windows.Forms as WinForms
+            if e.Button != WinForms.MouseButtons.Left:
+                return
+        except Exception:
+            pass
+
+        w = self._mgr._main_window
+        if not w:
+            return
+        # pywebview 的 Window 不维护可见性（show()/hide() 不会更新 hidden 字段），
+        # 旧代码 getattr(w,'visible',True) 恒为 True → 单击永远只会「隐藏」。
+        # 这里直接读原生 Form.Visible（切到 UI 线程读取）。
+        visible = ui_invoke(w, lambda: bool(w.native.Visible))
+        if visible is None:
+            visible = True
+        if visible:
+            try:
+                w.hide()
+            except Exception:
+                pass
+            self._sync_bosskey(True)
+        else:
+            self._mgr.show_main_window()
+            self._sync_bosskey(False)
+
+    def destroy(self):
+        try:
+            if self._notify:
+                n = self._notify
+
+                def _kill():
+                    n.Visible = False
+                    n.Dispose()
+
+                ui_invoke(self._mgr._main_window, _kill)
+                self._notify = None
+        except Exception:
+            pass
+
+
+def set_autostart(enable: bool) -> bool:
+    """设置/取消开机自启（Windows 注册表 CurrentVersion\\Run）。
+
+    成功返回 True，失败（非 Windows / 权限不足）返回 False。
+    """
+    if sys.platform != 'win32':
+        return False
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        exe_path = sys.executable
+        # 如果是 python 脚本运行，用 pythonw.exe 避免黑框
+        if exe_path.lower().endswith('python.exe'):
+            exe_path = exe_path.replace('python.exe', 'pythonw.exe')
+        script_path = os.path.abspath(sys.argv[0])
+        value = f'"{exe_path}" "{script_path}"'
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+        if enable:
+            winreg.SetValueEx(key, "TSPlayer", 0, winreg.REG_SZ, value)
+        else:
+            try:
+                winreg.DeleteValue(key, "TSPlayer")
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        print(f"[Autostart] set failed: {e}")
+        return False
+
+
+def downloads_dir() -> str:
+    """返回系统「下载」目录（读注册表 Shell Folders，失败回退 ~/Downloads）。"""
+    if sys.platform == 'win32':
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
+            ) as key:
+                p = winreg.QueryValueEx(key, '{374DE290-123F-4565-9164-39C4925E467B}')[0]
+                if p and os.path.isdir(p):
+                    return p
+        except Exception:
+            pass
+    p = os.path.join(os.path.expanduser('~'), 'Downloads')
+    return p if os.path.isdir(p) else os.path.expanduser('~')
+
+
+def get_autostart() -> bool:
+    """查询当前是否已设置开机自启。"""
+    if sys.platform != 'win32':
+        return False
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
+        try:
+            val, _ = winreg.QueryValueEx(key, "TSPlayer")
+            winreg.CloseKey(key)
+            return bool(val)
+        except FileNotFoundError:
+            winreg.CloseKey(key)
+            return False
+    except Exception:
+        return False
 
 
 class JsApi:
@@ -192,6 +656,9 @@ class JsApi:
         self._is_maximized = False
         self._restore_geom = None
         self._drag = None
+        self._is_fullscreen = False
+        self._fs_x = self._fs_y = self._fs_w = self._fs_h = 0
+        self._was_maximized_before_fs = False  # 进入全屏前是否为最大化，退出时恢复
 
     def attach(self, window):
         self._w = window
@@ -400,6 +867,15 @@ class JsApi:
             except Exception:
                 pass
 
+    def hide_window(self):
+        """隐藏窗口（到托盘，任务栏也不显示）。"""
+        w = self._w
+        if w:
+            try:
+                w.hide()
+            except Exception:
+                pass
+
     def toggle_maximize_window(self, is_max=False):
         """在「最大化（贴合工作区，保留任务栏）」与「还原」之间切换。
         is_max 由 JS 端传入（window-chrome.js 维护的 per-window 状态），避免主窗/播放窗串扰。
@@ -408,9 +884,20 @@ class JsApi:
         if not w or not getattr(w, 'native', None):
             return
         try:
-            import System.Windows.Forms as WinForms
-            screen = WinForms.Screen.FromHandle(w.native.Handle)
-            wa = screen.WorkingArea
+            # Screen.FromHandle / WorkingArea 属于原生控件访问 → 切到 UI 线程读取
+            def _work_area():
+                import System.Windows.Forms as WinForms
+                a = WinForms.Screen.FromHandle(w.native.Handle).WorkingArea
+                return (int(a.X), int(a.Y), int(a.Width), int(a.Height))
+
+            _wa = ui_invoke(w, _work_area)
+            if not _wa:
+                return bool(self._is_maximized)
+
+            class _WA:
+                X, Y, Width, Height = _wa
+
+            wa = _WA
             target = bool(is_max)
             if self._is_maximized and not target:
                 g = self._restore_geom or (120, 120, 900, 640)
@@ -436,9 +923,127 @@ class JsApi:
             except Exception:
                 pass
 
+    def report_play_progress(self, item_json="", src_idx=0, ep_idx=0, current_time=0):
+        """播放窗口上报当前播放进度 → 主窗口保存播放历史。
+
+        播放窗口切换集数/开始播放时调用。传递完整的 item JSON（含 vod_id/vod_name/vod_pic 等），
+        主窗口端直接设置 currentItem 再调用 saveHistory，避免因 currentItem 为空而跳过保存。
+        """
+        w = self.manager._main_window
+        if not w:
+            return
+        try:
+            import json
+            item = json.loads(item_json) if item_json else {}
+            # 用 JSON 字符串安全注入，避免特殊字符导致 JS 语法错误
+            item_js = json.dumps(item, ensure_ascii=False)
+            js = (
+                "if(window.__app){"
+                "if(!window.__app.currentItem || window.__app.currentItem.vod_id!==%s){"
+                "window.__app.currentItem=%s;"
+                "}"
+                "window.__app.playSrc=%d;"
+                "window.__app.playEp=%d;"
+                "window.__app.saveHistory(%s);"
+                "}"
+            ) % (
+                json.dumps(str(item.get('vod_id', '')), ensure_ascii=False),
+                item_js,
+                int(src_idx),
+                int(ep_idx),
+                repr(float(current_time or 0))
+            )
+            w.evaluate_js(js)
+        except Exception as e:
+            print(f"[report_play_progress] failed: {e}")
+
     # —— 跨窗口操作转发给 manager ——
     def show_main_window(self):
         self.manager.show_main_window()
+
+    def show_player_window(self):
+        self.manager.show_player_window()
+
+    def set_boss_key(self, combo=""):
+        """JS API：设置老板键组合（空串清除）。由主窗口设置中心调用。"""
+        if self.manager.bosskey:
+            self.manager.bosskey.set_combo(combo or "")
+
+    def set_autostart(self, enable=False):
+        """JS API：设置开机自启。"""
+        return set_autostart(bool(enable))
+
+    def get_autostart(self):
+        """JS API：查询当前是否已设置开机自启。"""
+        return get_autostart()
+
+    def save_text_file(self, filename="export.json", content=""):
+        """JS API：把文本保存到用户选择的文件（桌面端「导出源 / 导出全部」走这里）。
+
+        为什么需要它：WebView2 里 `<a download href=blob:...>` 走的是浏览器下载通道，
+        而 pywebview 默认 settings['ALLOW_DOWNLOADS']=False，会在 DownloadStarting 里
+        直接 args.Cancel = True —— 于是桌面端点「导出」完全没反应（浏览器里却正常）。
+        这里改由 Python 端弹原生「另存为」对话框并落盘，行为可控且有明确反馈。
+
+        返回 {'ok': bool, 'path': str, 'canceled': bool, 'error': str}
+        """
+        w = self._w or self.manager._main_window
+        safe_name = os.path.basename(str(filename or 'export.json')).strip() or 'export.json'
+        text = content if isinstance(content, str) else str(content or '')
+        init_dir = downloads_dir()
+
+        def _pick():
+            # SaveFileDialog 是模态对话框，必须在 UI 线程 ShowDialog，否则可能挂死/抛异常
+            try:
+                try:
+                    from webview import FileDialog
+                    dialog_type = FileDialog.SAVE
+                except Exception:
+                    dialog_type = 30  # FileDialog.SAVE
+                res = w.create_file_dialog(
+                    dialog_type, init_dir, False, safe_name,
+                    ('JSON 文件 (*.json)', '所有文件 (*.*)'),
+                )
+            except Exception as e:
+                return {'state': 'error', 'msg': str(e)}
+            if not res:
+                return {'state': 'cancel'}
+            path = res if isinstance(res, str) else res[0]
+            return {'state': 'ok', 'path': str(path)}
+
+        picked = ui_invoke(w, _pick) if w else {'state': 'error', 'msg': 'no window'}
+        picked = picked or {'state': 'error', 'msg': 'dialog failed'}
+
+        target = None
+        if picked.get('state') == 'cancel':
+            return {'ok': False, 'canceled': True, 'path': '', 'error': ''}
+        if picked.get('state') == 'ok':
+            target = picked.get('path')
+        else:
+            # 对话框不可用时兜底：直接写到「下载」目录，绝不让用户感觉「点了没反应」
+            base, ext = os.path.splitext(safe_name)
+            target = os.path.join(init_dir, safe_name)
+            i = 1
+            while os.path.exists(target):
+                target = os.path.join(init_dir, f"{base}({i}){ext}")
+                i += 1
+
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
+            with open(target, 'w', encoding='utf-8') as f:
+                f.write(text)
+            return {'ok': True, 'canceled': False, 'path': target, 'error': ''}
+        except Exception as e:
+            return {'ok': False, 'canceled': False, 'path': target or '', 'error': str(e)}
+
+    def quit_app(self):
+        """JS API：彻底退出应用（托盘菜单的退出也走这里）。"""
+        if self.manager.tray:
+            self.manager.tray.destroy()
+        os._exit(0)
+
+    def open_main_settings(self, tab="sources"):
+        self.manager.open_main_settings(tab)
 
     def open_player_window(self, state_json=""):
         self.manager.open_player_window(state_json)
@@ -452,18 +1057,77 @@ class JsApi:
             self.manager._resize_window_to_aspect(w, vw, vh)
 
     def toggle_fullscreen(self):
-        """切换窗口真正的显示器全屏（OS 级，覆盖整个显示器含任务栏）。
+        """切换窗口真正的显示器全屏（覆盖整个显示器，含任务栏）。
 
-        解决 WebView2 内核不支持网页 DOM requestFullscreen 的问题：
-        XGPlayer 默认调用浏览器原生全屏在 WebView2 下无效，故由 Python 端
-        调用 pywebview 原生窗口全屏替代，实现真正的「显示器全屏」。"""
+        解决 WebView2 内核不支持网页 DOM requestFullscreen 的问题，也规避
+        pywebview 自带 toggle_fullscreen() 在 frameless 窗口下还原异常/不生效。
+        自行用 WinForms 直接设置 Form 边界到整块显示器（screen.Bounds，含任务栏），
+        并记录进入前的几何与最大化态，退出时精确还原——保证「双击进入 / 再次双击还原」都可靠。
+
+        与最大化联动：进入全屏前若已最大化，记录正常几何(_restore_geom)而非最大化几何，
+        退出全屏时恢复到进入前的最大化/正常态，避免「全屏退出后窗口尺寸错乱」。
+        """
         w = self._w
-        if w:
-            try:
-                w.toggle_fullscreen()
-            except Exception:
-                pass
+        if not w or not getattr(w, 'native', None):
+            return None
 
+        # 进入/退出全屏前先把「正常态几何」在当前线程读好（w.x/w.width 是 Python 侧缓存，读取安全）
+        if not self._is_fullscreen:
+            self._was_maximized_before_fs = bool(self._is_maximized)
+            if self._is_maximized and self._restore_geom:
+                # 当前是最大化：记录正常几何（而非最大化几何），便于退出全屏后还原到正常态
+                self._fs_x, self._fs_y = int(self._restore_geom[0]), int(self._restore_geom[1])
+                self._fs_w, self._fs_h = int(self._restore_geom[2]), int(self._restore_geom[3])
+            else:
+                try:
+                    self._fs_x, self._fs_y = int(w.x), int(w.y)
+                    self._fs_w, self._fs_h = int(w.width), int(w.height)
+                except Exception:
+                    pass
+
+        def _apply():
+            import System.Windows.Forms as WinForms
+            native = w.native
+            screen = WinForms.Screen.FromHandle(native.Handle)
+
+            # 关键：frameless 窗口本身已是 FormBorderStyle.None。重复赋值同一枚举值
+            # 依然会触发 WinForms 重建窗口句柄，把子控件 WebView2 的 HWND 剥离 →
+            # RPC_E_DISCONNECTED（窗口消失、进程残留）。故仅在样式确实不同时才赋值。
+            none_style = WinForms.FormBorderStyle(0)  # None
+            if native.FormBorderStyle != none_style:
+                native.FormBorderStyle = none_style
+            normal_state = WinForms.FormWindowState(0)  # Normal
+            if native.WindowState != normal_state:
+                native.WindowState = normal_state
+
+            if self._is_fullscreen:
+                # —— 退出全屏 ——
+                self._is_fullscreen = False
+                if self._was_maximized_before_fs:
+                    # 进入前是最大化 → 恢复最大化（贴合工作区，保留任务栏）
+                    wa = screen.WorkingArea
+                    native.SetBounds(int(wa.X), int(wa.Y), int(wa.Width), int(wa.Height))
+                    self._is_maximized = True
+                else:
+                    # 进入前是正常态 → 恢复正常几何
+                    native.SetBounds(int(self._fs_x), int(self._fs_y), int(self._fs_w), int(self._fs_h))
+                    self._is_maximized = False
+            else:
+                # —— 进入全屏 ——
+                self._is_fullscreen = True
+                b = screen.Bounds
+                native.SetBounds(int(b.X), int(b.Y), int(b.Width), int(b.Height))
+            # 返回当前状态供前端同步（最大化态 + 全屏态）
+            return {'maximized': bool(self._is_maximized), 'fullscreen': bool(self._is_fullscreen)}
+
+        return ui_invoke(w, _apply)
+
+    def get_window_state(self):
+        """返回当前窗口状态（最大化 / 全屏），供前端初始化或同步时查询。"""
+        return {
+            'maximized': bool(self._is_maximized),
+            'fullscreen': bool(self._is_fullscreen),
+        }
 
 def main() -> None:
     """主入口：启动 Flask → 创建 pywebview 窗口"""
@@ -471,6 +1135,16 @@ def main() -> None:
     flask_thread.start()
 
     player_mgr = PlayerWindow(FLASK_PORT)
+
+    # 老板键：启动时读取已保存的组合并注册全局热键
+    player_mgr.bosskey = BossKeyManager(player_mgr)
+    try:
+        from src.config_store import get_item
+        _saved_cfg = get_item("cms_cfg", {})
+        if isinstance(_saved_cfg, dict) and _saved_cfg.get("bossKey"):
+            player_mgr.bosskey.set_combo(_saved_cfg["bossKey"])
+    except Exception:
+        pass
 
     # 主窗口使用独立的 js_api 实例
     main_api = JsApi(player_mgr, 'main')
@@ -490,8 +1164,35 @@ def main() -> None:
     player_mgr._main_window = window
     player_mgr._main_api = main_api
 
-    sys.setrecursionlimit(5000)
-    webview.start(debug=True)
+    # 系统托盘：在 webview.start 之前创建对象，start 之后在 UI 线程初始化图标
+    player_mgr.tray = TrayManager(player_mgr)
+
+    # 允许下载：pywebview 默认 ALLOW_DOWNLOADS=False，会把网页发起的下载（含
+    # blob: 导出）直接 Cancel，导致桌面端「导出」毫无反应。开启后即便前端走
+    # <a download> 兜底路径也能弹出原生「另存为」。
+    try:
+        webview.settings['ALLOW_DOWNLOADS'] = True
+    except Exception as e:
+        print(f"[Settings] enable downloads failed: {e}")
+
+    # webview.start(func=...) 的回调运行在「工作线程」，而 NotifyIcon 必须在 UI(STA)
+    # 线程创建，否则托盘图标常常不显示。这里等窗口原生句柄就绪，再 Invoke 过去创建。
+    def _on_loaded():
+        try:
+            for _ in range(200):  # 最多等 20s
+                native = getattr(window, 'native', None)
+                if native is not None and native.IsHandleCreated:
+                    ok = ui_invoke(window, player_mgr.tray.create)
+                    if not ok:
+                        print("[Tray] create returned falsy")
+                    return
+                time.sleep(0.1)
+            print("[Tray] window handle not ready, create on current thread as fallback")
+            player_mgr.tray.create()
+        except Exception as e:
+            print(f"[Tray] init in loaded failed: {e}")
+
+    webview.start(debug=True, func=_on_loaded)
 
     sys.exit(0)
 

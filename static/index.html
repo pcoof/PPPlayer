@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#b0823c">
 <title>TSPlayer</title>
+<!-- 环境标记：尽早在 <head> 打上 is-desktop / is-web，避免浏览器里先闪出一排「最小化/最大化/关闭」。
+     WebView2 会同步注入 window.chrome.webview（比 window.pywebview 更早可用）；window-chrome.js 会再确认一次。 -->
+<script>document.documentElement.classList.add((window.chrome && window.chrome.webview) ? 'is-desktop' : 'is-web');</script>
 <link rel="stylesheet" href="/static/css/style.css">
 <script src="/static/js/alpine.min.js" defer></script>
 </head>
@@ -13,10 +16,24 @@
 <body class="u-bg-paper u-text-ink u-min-h-screen u-antialiased" x-data="app()" x-init="init()" :class="{'u-overflow-hidden':showPlayer||showSettings||showFav||showHist}">
 
 <!-- 顶栏（自定义标题栏：可拖拽，含窗口控制） -->
-<header id="titleBar" class="ts-header u-sticky u-top-0 u-z30" @mousedown="titleBarMouseDown" @dblclick="titleBarDblClick">
+<header id="titleBar" class="ts-header" @mousedown="titleBarMouseDown" @dblclick="titleBarDblClick">
   <div class="ts-toprow">
-    <div class="ts-container u-py-3 u-flex u-items-center u-gap-4 u-justify-between">
-      <a href="#" @click.prevent="page=1;currentType='0';loadData()" class="ts-wordmark u-shrink-0">TS<span class="dot">.</span>Player</a>
+    <div class="ts-container u-py-2 u-flex u-items-center u-gap-4 u-justify-between">
+      <!-- 左：API源名称 + 正在播放的视频标题（点击播放后出现，点击显示播放窗口） -->
+      <div class="u-flex u-items-center u-gap-3 u-min-w-0 u-grow" style="max-width: 400px;">
+        <span class="ts-wordmark u-shrink-0" x-text="getActiveSource() ? getActiveSource().name : 'TS.Player'"></span>
+        <template x-if="currentItem && currentItem.vod_name">
+          <div class="now-playing-bar u-flex u-items-center u-gap-2 u-min-w-0 u-cursor-pointer" @click="showPlayerWindow()" title="点击显示播放窗口">
+            <span class="now-playing-dot"></span>
+            <div class="now-playing-title u-min-w-0 u-overflow-hidden">
+              <span x-text="currentItem.vod_name"></span>
+            </div>
+            <button @click.stop="closePlayingBar()" class="now-playing-close u-shrink-0" title="关闭播放">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 2l8 8M10 2l-8 8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </template>
+      </div>
       <div class="ts-search-wrap">
         <div class="ts-search u-relative u-flex u-items-center u-pl-4 u-pr-1-5 u-py-1">
           <svg class="u-w-18 u-h-18 u-text-ink-3 u-shrink-0" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -27,11 +44,11 @@
           <div x-show="showSearchHist && searchHistory.length" x-cloak class="ts-dropdown u-absolute u-z50 u-top-full u-left-0 u-right-0 u-mt-2 u-p-1-5">
             <template x-for="term in searchHistory.slice(0,6)" :key="term">
               <div class="ts-dropdown-item u-flex u-items-center u-justify-between u-px-3 u-py-2 u-rounded-lg">
-                <button @click="searchWd=term;doSearch()" class="u-flex u-items-center u-gap-2-5 u-text-xs u-text-ink-2 u-grow u-text-left">
+                <button @click="searchWd=term;doSearch()" class="u-flex u-items-center u-gap-2-5 u-text-xs u-text-ink-2 u-grow u-text-left" style="box-shadow:none;">
                   <svg class="u-w-4 u-h-4 u-text-ink-3 u-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   <span x-text="term" class="u-truncate"></span>
                 </button>
-                <button @click="removeSearchHistory(term)" class="u-p-1 u-text-ink-3 u-hover-danger u-transition-colors" title="删除">
+                <button @click="removeSearchHistory(term)" class="u-p-1 u-text-ink-3 u-hover-danger u-transition-colors" title="删除" style="box-shadow:none;">
                   <svg class="u-w-4 u-h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -40,7 +57,7 @@
         </div>
       </div>
 
-      <div class="u-flex u-items-center u-gap-1-5 u-shrink-0">
+      <div class="u-flex u-items-center u-gap-2 u-shrink-0">
         <button @click="toggleThemeMode()" class="ts-icon-btn" :title="'主题：' + cfg.theme">
           <template x-if="cfg.theme==='light'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-1.414-1.414M6.343 6.343 4.93 4.93m12.728 1.414L16.242 7.76M6.343 17.657l-1.414 1.414M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg></template>
           <template x-if="cfg.theme==='dark'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></template>
@@ -63,8 +80,13 @@
       <button class="ts-win-btn" @click="winMin" title="最小化" aria-label="最小化">
         <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="6.2" width="9" height="1.5" rx="0.75" fill="currentColor"/></svg>
       </button>
-      <button class="ts-win-btn" @click="winMax" title="最大化 / 还原" aria-label="最大化">
-        <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      <button class="ts-win-btn" @click="winMax" :title="isMaximized ? '还原' : '最大化'" :aria-label="isMaximized ? '还原' : '最大化'">
+        <template x-if="isMaximized">
+          <svg width="13" height="13" viewBox="0 0 13 13"><path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h5A1.5 1.5 0 0 1 11 5.5v5A1.5 1.5 0 0 1 9.5 12h-5A1.5 1.5 0 0 1 3 10.5v-5z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 2.5A1.5 1.5 0 0 1 6.5 1h5A1.5 1.5 0 0 1 13 2.5v5A1.5 1.5 0 0 1 11.5 9H10V5.5A2.5 2.5 0 0 0 7.5 3H5V2.5z" fill="currentColor" stroke="currentColor" stroke-width="0.8"/></svg>
+        </template>
+        <template x-if="!isMaximized">
+          <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        </template>
       </button>
       <button class="ts-win-btn ts-win-close" @click="winClose" title="关闭" aria-label="关闭">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l7 7M10 3l-7 7" stroke-linecap="round"/></svg>
@@ -73,7 +95,7 @@
   </div>
 
   <div id="typeNavContainer" x-show="classes.length" x-cloak class="ts-catnav">
-    <div class="ts-container u-py-1-5">
+    <div class="ts-container">
       <div class="u-flex u-items-center u-gap-1 u-py-2">
         <button @click="currentType='0';page=1;loadData()" class="ts-cat" :class="currentType==='0'?'is-active':''">全部</button>
         <template x-for="c in visibleClasses" :key="c.type_id">
@@ -95,7 +117,7 @@
 </header>
 
 <!-- 主内容 -->
-<main class="u-grow ts-container ts-content u-py-7">
+<main class="ts-container ts-content">
   <!-- 空状态：无源 -->
   <div x-show="!sources.length" x-cloak class="ts-empty">
     <div class="ts-empty-icon">
@@ -165,9 +187,9 @@
     <h2 class="ts-drawer-title">我的收藏</h2>
     <button @click="showFav=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
   </div>
-  <div class="u-grow u-overflow-y-auto u-px-3 u-py-3 u-space-y-1-5 ts-scroll">
+  <div class="ts-hist u-grow u-px-3 u-py-3 ts-scroll">
     <template x-for="item in fav" :key="item.vod_id">
-      <div @click="openPlayer(item);showFav=false" class="ts-list-item">
+      <div @click="openPlayer(item);showFav=false" class="ts-list-item u-mb-3">
         <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
         <div class="u-grow u-min-w-0">
           <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
@@ -191,9 +213,9 @@
       <button @click="showHist=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
     </div>
   </div>
-  <div class="u-grow u-overflow-y-auto u-px-3 u-py-3 u-space-y-1-5 ts-scroll">
+  <div class="ts-hist u-grow u-px-3 u-py-3 ts-scroll">
     <template x-for="item in his" :key="item.vod_id + '_' + item.last_watch_time">
-      <div @click="openPlayer(item);showHist=false" class="ts-list-item">
+      <div @click="openPlayer(item);showHist=false" class="ts-list-item u-mb-3">
         <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
         <div class="u-grow u-min-w-0">
           <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
@@ -218,23 +240,48 @@
       <button @click="settingsTab='sources'" class="ts-tab" :class="settingsTab==='sources'?'is-active':''">API源</button>
       <button @click="settingsTab='data'" class="ts-tab" :class="settingsTab==='data'?'is-active':''">数据</button>
     </div>
-    <div class="u-grow u-overflow-y-auto u-px-5 u-space-y-6 ts-scroll">
+    <div class="u-grow u-overflow-y-auto u-px-5 ts-scroll">
       <!-- 基础 -->
-      <div x-show="settingsTab==='basic'" x-cloak class="u-space-y-5">
-        <div>
+      <div x-show="settingsTab==='basic'" x-cloak>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">加载模式</label>
           <div class="ts-seg">
             <button @click="cfg.loadMode='page';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='page'?'is-active':''">上下页</button>
             <button @click="cfg.loadMode='waterfall';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='waterfall'?'is-active':''">自动加载</button>
           </div>
         </div>
-        <div>
+        <div class="u-pt-5">
           <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2 u-cursor-pointer">
             <input type="checkbox" x-model="cfg.smartAdRemove" @change="saveCfg()" class="u-rounded u-accent"> 智能去广告
           </label>
           <p class="ts-hint u-mt-2">自动识别并剔除片头 / 片中广告切片（基于切片源差异与 discontinuity），只播放正片。关闭则原样加载。</p>
         </div>
-        <div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">老板键</label>
+          <p class="ts-hint u-mb-3">点击输入框后按一次组合键即可设为「隐藏 / 显示」快捷键（如 Ctrl+Shift+H）。触发后隐藏主窗口与播放窗口，再次按下恢复。</p>
+          <div class="u-flex u-items-center u-gap-2">
+            <input type="text" id="bossKeyInput" readonly x-model="cfg.bossKey"
+                   :placeholder="bossKeyListening ? '请按下组合键…' : '未设置'"
+                   @click="startBossKeyCapture()" class="ts-field u-grow">
+            <button @click="resetBossKey()" class="ts-ghost-btn">重置</button>
+          </div>
+          <p class="ts-hint u-mt-2" x-text="cfg.bossKey ? ('当前老板键：' + cfg.bossKey + '（按此组合键隐藏 / 显示窗口）') : '未设置老板键'"></p>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">系统行为</label>
+          <div class="u-space-y-2">
+            <label class="u-flex u-items-center u-gap-2 u-text-sm u-text-ink-2 u-cursor-pointer">
+              <input type="checkbox" x-model="cfg.autostart" @change="toggleAutostart" class="u-rounded u-accent">
+              开机自启
+            </label>
+            <label class="u-flex u-items-center u-gap-2 u-text-sm u-text-ink-2 u-cursor-pointer">
+              <input type="checkbox" x-model="cfg.closeToTray" @change="saveCfg()" class="u-rounded u-accent">
+              关闭窗口时最小化到托盘
+            </label>
+          </div>
+          <p class="ts-hint u-mt-2">开启后点击关闭按钮会隐藏到系统托盘，可通过托盘图标或老板键恢复。</p>
+        </div>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">主题风格</label>
           <p class="ts-hint u-mb-3">与浅色 / 深色模式独立组合，九种视觉风格随心切换。</p>
           <div class="ts-theme-grid">
@@ -248,31 +295,30 @@
         </div>
       </div>
       <!-- 布局 -->
-      <div x-show="settingsTab==='layout'" x-cloak class="u-space-y-6">
-        <div>修改后同步到当前选择的api源</div>
-        <div>
+      <div x-show="settingsTab==='layout'" x-cloak>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">海报比例</label>
           <div class="ts-seg">
             <button @click="setListLayout('poster')" :class="currentListLayout()==='poster'?'is-active':''">竖图</button>
             <button @click="setListLayout('landscape')" :class="currentListLayout()==='landscape'?'is-active':''">横图</button>
           </div>
         </div>
-        <div>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">卡片标签</label>
           <p class="ts-hint u-mb-3">四角标签与标题下方两行，从字段中选择（选「不显示」则隐藏）</p>
           <div class="u-grid u-grid-2 u-gap-3">
-            <div><span class="ts-hint u-block u-mb-1">左上角</span><select @change="setCardTag('tl', $event.target.value)" :value="activeCardTags().tl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
-            <div><span class="ts-hint u-block u-mb-1">右上角</span><select @change="setCardTag('tr', $event.target.value)" :value="activeCardTags().tr" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
-            <div><span class="ts-hint u-block u-mb-1">左下角</span><select @change="setCardTag('bl', $event.target.value)" :value="activeCardTags().bl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
-            <div><span class="ts-hint u-block u-mb-1">右下角</span><select @change="setCardTag('br', $event.target.value)" :value="activeCardTags().br" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
-            <div><span class="ts-hint u-block u-mb-1">标题下方·第一行</span><select @change="setCardTag('sub1', $event.target.value)" :value="activeCardTags().sub1" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
-            <div><span class="ts-hint u-block u-mb-1">标题下方·第二行</span><select @change="setCardTag('sub2', $event.target.value)" :value="activeCardTags().sub2" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">左上角</span><select @change="setCardTag('tl', $event.target.value)" :value="activeCardTags().tl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">右上角</span><select @change="setCardTag('tr', $event.target.value)" :value="activeCardTags().tr" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">左下角</span><select @change="setCardTag('bl', $event.target.value)" :value="activeCardTags().bl" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">右下角</span><select @change="setCardTag('br', $event.target.value)" :value="activeCardTags().br" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">标题下方·第一行</span><select @change="setCardTag('sub1', $event.target.value)" :value="activeCardTags().sub1" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
+            <div><span class="ts-hint u-block u-mb-1">标题下方·第二行</span><select @change="setCardTag('sub2', $event.target.value)" :value="activeCardTags().sub2" class="ts-select"><option value="">不显示</option><option value="type">分类</option><option value="hits">热度</option><option value="lang">语言</option><option value="year">年代</option><option value="area">地区</option><option value="actor">演员</option><option value="director">导演</option><option value="tag">标签</option><option value="duration">时长</option><option value="state">资源类别</option><option value="remarks">备注</option><option value="pubdate">上映日期</option><option value="vod_blurb">简介</option><option value="vod_content">详情</option></select></div>
           </div>
         </div>
       </div>
       <!-- API 源 -->
-      <div x-show="settingsTab==='sources'" x-cloak class="u-space-y-4">
-        <div class="u-flex u-items-center u-justify-between">
+      <div x-show="settingsTab==='sources'" x-cloak style="display: flex; flex-direction: column; position: relative;">
+        <div class="u-flex u-items-center u-justify-between u-pt-5">
           <h3 class="ts-label">API 源（单选）</h3>
           <div class="u-flex u-items-center u-gap-2">
             <button @click="checkAllSources()" class="ts-ghost-btn">检测全部</button>
@@ -281,10 +327,9 @@
             <input type="file" x-ref="importFile" @change="importSources($event)" accept=".json" class="u-hidden">
           </div>
         </div>
-        <div class="u-space-y-2">
-          <button @click="addSource()" class="ts-add-dashed">＋ 添加 API 源</button>
+        <div class="u-pt-5">
           <template x-for="(s,i) in sources" :key="s.id">
-            <div class="ts-src" :class="!s.enabled?'off':''">
+            <div class="ts-src u-mt-2" :class="!s.enabled?'off':''">
               <button @click="setActiveSource(i)" class="ts-switch" :class="s.enabled?'on':''"><span></span></button>
               <div class="u-grow u-min-w-0" style="width: 70%;">
                 <div class="ts-src-name"><span :class="getStatusColor(s)" class="ts-status-dot u-mr-1">●</span><span x-text="s.name"></span></div>
@@ -300,12 +345,34 @@
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               </button>
             </div>
-          </template>
+          </template>          
         </div>
+        <button @click="addSource()" class="ts-add-dashed">＋ 添加 API 源</button>
       </div>
       <!-- 数据 -->
-      <div x-show="settingsTab==='data'" x-cloak class="u-space-y-5">
-        <div>
+      <div x-show="settingsTab==='data'" x-cloak>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">记录数量限制</label>
+          <p class="ts-hint u-mb-3">设置播放历史和收藏的最大保存条数，超出后自动删除最旧的记录。</p>
+          <div class="u-grid u-grid-cols-2 u-gap-3">
+            <div>
+              <label class="u-block u-text-xs u-text-ink-3 u-mb-1">播放历史上限</label>
+              <div class="u-flex u-items-center u-gap-2">
+                <input type="number" min="1" max="9999" x-model.number="cfg.maxHistory" @change="saveCfg(); if(his.length > cfg.maxHistory) his = his.slice(0, cfg.maxHistory)" class="ts-field u-grow">
+                <span class="u-text-xs u-text-ink-3">条</span>
+              </div>
+            </div>
+            <div>
+              <label class="u-block u-text-xs u-text-ink-3 u-mb-1">收藏上限</label>
+              <div class="u-flex u-items-center u-gap-2">
+                <input type="number" min="1" max="9999" x-model.number="cfg.maxFav" @change="saveCfg(); if(fav.length > cfg.maxFav) fav = fav.slice(0, cfg.maxFav)" class="ts-field u-grow">
+                <span class="u-text-xs u-text-ink-3">条</span>
+              </div>
+            </div>
+          </div>
+          <p class="ts-hint u-mt-2">当前：历史 <span x-text="his.length"></span> / <span x-text="cfg.maxHistory"></span> 条，收藏 <span x-text="fav.length"></span> / <span x-text="cfg.maxFav"></span> 条</p>
+        </div>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">全局数据</label>
           <p class="ts-hint u-mb-3">导出含设置、源、收藏、历史与搜索记录；导入将覆盖当前全部本地数据。</p>
           <div class="ts-seg">
@@ -314,7 +381,7 @@
             <input type="file" x-ref="importAllFile" @change="importAllData($event)" accept=".json" class="u-hidden">
           </div>
         </div>
-        <div>
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">API 源</label>
           <div class="ts-seg">
             <button @click="exportSources()" class="ts-ghost-btn">导出源</button>
@@ -322,7 +389,7 @@
             <input type="file" x-ref="importFile2" @change="importSources($event)" accept=".json" class="u-hidden">
           </div>
         </div>
-        <div class="ts-info-note">
+        <div class="u-pt-5 ts-info-note">
           <svg class="u-w-5 u-h-5 u-text-accent u-shrink-0 u-mt-0-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
           <div>
             <p class="ts-info-note-t">数据存储说明</p>
@@ -338,7 +405,7 @@
 <div x-show="showSourceEdit" x-cloak x-transition.opacity @click.self="showSourceEdit=false" class="u-fixed u-inset u-z50 ts-modal-scrim u-flex u-items-start u-justify-center u-pt-12 u-px-4">
   <div @click.stop x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" class="ts-modal">
     <h3 class="ts-modal-title u-px-6 u-py-4 u-border-b u-border-line" x-text="editingIdx===null?'添加 API 源':'编辑 API 源'"></h3>
-    <div class="u-px-6 u-py-5 u-space-y-4 ts-scroll u-overflow-y-auto u-max-h-70vh">
+    <div class="u-px-6 u-py-5 ts-scroll u-overflow-y-auto u-max-h-70vh">
       <div>
         <label class="ts-label u-block u-mb-1-5">源名称</label>
         <input type="text" x-model="editingSource.name" placeholder="苹果CMS 源" class="ts-field">

@@ -79,10 +79,9 @@ tsplayer-pywebview/
 |---|---|
 | `GET /` | 返回 index.html |
 | `GET /static/<path>` | 静态文件 |
-| `GET /api/proxy?u=<url>` | HTTP 代理转发（绕过跨域） |
-| `GET /api/m3u8?url=<url>&skip=<n>` | M3U8 代理 + 广告过滤（浏览器 fetch 失败时的回退通道） |
-| `POST /api/m3u8_prepared` | 接收远程 m3u8 文本，过滤后暂存并返回 `{"url":"/api/serve_m3u8/<sid>.m3u8"}` |
-| `GET /api/serve_m3u8/<sid>` | 返回已过滤的播放列表（`.m3u8` 结尾，供播放器识别为 HLS） |
+| `GET /api/hls?url=<url>` | 播放列表代理：后端拉取 + 智能去广告，并把内部所有 CDN 地址改写为同源代理；302 到 `.m3u8` 结尾地址供播放器识别为 HLS |
+| `GET /api/media?url=<url>` | 媒体字节代理（切片 `.ts/.m4s`、密钥 `.key`、字幕 `.vtt` 等），转发 `Range` 请求支持拖动进度，同源返回规避跨域 |
+| `GET /api/serve_m3u8/<sid>` | 返回已暂存的过滤后播放列表（`.m3u8` 结尾，供播放器识别为 HLS） |
 | `GET /api/parse?url=<url>` | 媒体嗅探解析 |
 | `GET /api/cms/classes?source=<url>` | 获取 CMS 分类 |
 | `GET /api/cms/videos?source=<url>&ac=&pg=&t=&wd=` | 获取视频列表 |
@@ -90,15 +89,20 @@ tsplayer-pywebview/
 | `GET /api/cms/check?source=<url>` | 检测 CMS 源连通性（设置中心「检测连接」调用） |
 | `GET /player` | 弹出式竖滑播放页 |
 
-## M3U8 智能去广告
+## M3U8 智能去广告 + 同源代理
 
-广告切片与正片通常是**两套独立的视频源**（切片 URI 目录、分辨率、码率、时长不同），以 `#EXT-X-DISCONTINUITY` 分隔。过滤流程：
+播放全程**只与本地 Flask 服务（127.0.0.1:19527）同源通信**，从根本上规避「CDN 不返回 `Access-Control-Allow-Origin` 头导致浏览器跨域失败」（典型表现：控制台报 CORS 错误、状态 200 但「无法加载响应数据」、或用 VLC 等能播但浏览器里黑屏）。
 
-1. 浏览器先 `fetch` 远程 m3u8（携带正确的 Referer / Cookie，规避 CDN 对服务端拉取的鉴权拒绝）；
-2. 文本 `POST /api/m3u8_prepared`，后端 `m3u8_filter.py` 按 discontinuity 切段、以切片目录签名归并视频源、保留总时长最长的正片源、丢弃所有 discontinuity，输出干净的单一 VOD 列表；
-3. 播放器加载返回的 `/api/serve_m3u8/<sid>.m3u8`（以 `.m3u8` 结尾，确保 XGPlayer / HLS.js 识别为 HLS）。
+流程：
 
-开关为设置中心 → 基础 → **智能去广告**（对应 `data/config.json` 中 `cms_cfg.smartAdRemove`，默认 `true`）。
+1. 前端把播放地址交给 `/api/hls?url=<编码地址>`（直链视频/切片则交给 `/api/media?url=`），**不再由浏览器直连 CDN**；
+2. 后端 `m3u8_filter.py` 拉取播放列表、按 discontinuity 切段、以切片目录签名归并视频源、保留总时长最长的正片源、丢弃所有 discontinuity，输出干净的单一 VOD 列表；
+3. 过滤后的列表里**所有 CDN 地址**（嵌套变体 → `/api/hls`、切片/密钥/字幕 → `/api/media`）被统一改写为本服务同源代理地址；
+4. 浏览器只请求本服务，切片经 `/api/media` 转发（支持 `Range` 拖动），彻底无跨域。
+
+> 智能去广告开关为设置中心 → 基础 → **智能去广告**（对应 `data/config.json` 中 `cms_cfg.smartAdRemove`，默认 `true`）。
+
+> Flask 使用 `threaded=True` 并发处理「页面 + 播放列表 + 多切片」的并行请求，并对重复地址做 20s TTL 缓存，速度接近直连。
 
 ## CMS 源配置
 

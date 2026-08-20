@@ -87,6 +87,7 @@ class FeifeiCMS(BaseCMS):
             "vod_actor": _text("actor"),
             "vod_director": _text("director"),
             "vod_content": _text("des"),
+            "vod_blurb": _text("blurb"),
             "vod_play_from": play_from,
             "vod_play_url": play_url,
             "vod_hits": _text("hits"),
@@ -115,9 +116,23 @@ class FeifeiCMS(BaseCMS):
         root = self._request_xml(params)
 
         video_els = root.findall(".//video")
-        total = root.findtext(".//total")
+
+        # 分页总数：优先读 <list pagecount="..."> 属性（苹果 CMS XML 标准格式），
+        # 兼容飞飞 XML 的 <total> 子节点文本；都取不到再回退 1。
+        pagecount = None
+        list_el = root.find(".//list")
+        if list_el is not None:
+            pc = (
+                list_el.get("pagecount")
+                or list_el.get("totalpage")
+                or list_el.get("total")
+            )
+            if pc:
+                pagecount = pc
+        if pagecount is None:
+            pagecount = root.findtext(".//total")
         try:
-            pagecount = int(total) if total else 1
+            pagecount = int(pagecount) if pagecount else 1
         except (ValueError, TypeError):
             pagecount = 1
 

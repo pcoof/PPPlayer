@@ -4,13 +4,6 @@
  */
 
 const API = {
-    /** 代理请求（代替原来 Cloudflare Worker 的 /?u= 参数） */
-    async proxy(url) {
-        const resp = await fetch('/api/proxy?u=' + encodeURIComponent(url));
-        if (!resp.ok) throw new Error(`Proxy error: ${resp.status}`);
-        return resp;
-    },
-
     /** 获取 CMS 分类列表 */
     async getClasses(sourceUrl) {
         const resp = await fetch('/api/cms/classes?source=' + encodeURIComponent(sourceUrl));
@@ -32,14 +25,6 @@ const API = {
         const resp = await fetch('/api/cms/detail?' + qs.toString());
         if (!resp.ok) throw new Error(`Detail error: ${resp.status}`);
         return resp.json();
-    },
-
-    /** M3U8 代理 + 广告过滤 */
-    async getM3u8(url, skip = 1) {
-        const qs = new URLSearchParams({ url: url, skip: String(skip) });
-        const resp = await fetch('/api/m3u8?' + qs.toString());
-        if (!resp.ok) throw new Error(`M3U8 error: ${resp.status}`);
-        return resp.text();
     },
 
     /** 媒体嗅探解析 */
