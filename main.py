@@ -14,7 +14,7 @@ FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
 # 应用版本（自动更新比对基准）。格式 YYYYMMDD.N，由 CI 工作流自动自增并同步。
-__version__ = "20260820.0"
+__version__ = "20260821.0"
 
 # 自动更新：GitHub Releases 检测
 GITHUB_REPO = "pcoof/tsplayer-pywebview"
@@ -489,9 +489,6 @@ class TrayManager:
             self._menu.MenuItems.Add(mi_exit)
             self._mi_exit = mi_exit
 
-            # 启动后静默自动检测新版本（后台线程 + UI 线程气泡，不阻塞启动）
-            self.check_update(show_no_update=False)
-
             self._notify = WinForms.NotifyIcon()
             self._notify.Text = "TSPlayer"
             self._notify.ContextMenu = self._menu
@@ -513,6 +510,8 @@ class TrayManager:
             self._notify.MouseClick += self._on_tray_mouse_click
             self._notify.Visible = True
             print("[Tray] icon created")
+            # 启动后静默自动检测新版本（后台线程 + UI 线程气泡，不阻塞启动）
+            self.check_update(show_no_update=False)
             return True
         except Exception as e:
             print(f"[Tray] create failed: {e}")
@@ -552,6 +551,107 @@ class TrayManager:
         except Exception:
             pass
         os._exit(0)
+
+    def _on_check_update(self, sender, e):
+        """右键菜单「检查更新」→ 显式检查并提示结果。"""
+        self.check_update(show_no_update=True)
+
+    def check_update(self, show_no_update=True):
+        """后台线程查询 GitHub 最新 Release，发现新版本则弹气泡 + 在菜单插入下载项。
+
+        全程不阻塞 UI：网络请求在 daemon 线程，气泡/菜单改动经 ui_invoke 回到 UI 线程。
+        """
+        import threading
+
+        def _run():
+            try:
+                import requests
+                resp = requests.get(
+                    GITHUB_API_LATEST,
+                    timeout=10,
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                if resp.status_code != 200:
+                    return
+                data = resp.json()
+                tag = data.get("tag_name") or ""
+                cur = _parse_app_version(__version__)
+                new = _parse_app_version(tag)
+                if not new or not cur or new <= cur:
+                    if show_no_update:
+                        self._toast("TSPlayer", "当前已是最新版本", "info")
+                    return
+                # 优先取 .exe/.zip 资产，否则退回 release 页面
+                dl = None
+                for a in data.get("assets", []):
+                    name = (a.get("name") or "").lower()
+                    if name.endswith(".exe") or name.endswith(".zip"):
+                        dl = a.get("browser_download_url")
+                        break
+                url = dl or (data.get("html_url") or GITHUB_RELEASES_URL)
+                self._latest_update = {"version": tag.lstrip("vV"), "url": url}
+                self._toast("TSPlayer", f"发现新版本 {tag.lstrip('vV')}，点击菜单下载", "info")
+                self._add_update_menu_item(tag.lstrip("vV"), url)
+            except Exception as e:
+                print(f"[Update] check failed: {e}")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _toast(self, title, text, kind="info"):
+        """在 UI 线程弹出托盘气泡（必须 UI 线程，否则 WinForms 抛跨线程异常）。"""
+        w = self._mgr._main_window
+
+        def _act():
+            try:
+                from System.Windows.Forms import ToolTipIcon
+                icon = ToolTipIcon.Info if kind == "info" else ToolTipIcon.Warning
+                self._notify.ShowBalloonTip(5000, title, text, icon)
+            except Exception as e:
+                print(f"[Update] toast failed: {e}")
+
+        if self._notify is None:
+            return
+        if w is not None:
+            ui_invoke(w, _act)
+        else:
+            try:
+                _act()
+            except Exception:
+                pass
+
+    def _add_update_menu_item(self, ver, url):
+        """在「退出」项之前插入「下载新版本 vX」菜单项（必须在 UI 线程操作 WinForms）。"""
+        w = self._mgr._main_window
+
+        def _act():
+            try:
+                import System.Windows.Forms as WinForms
+                for mi in list(self._menu.MenuItems):
+                    if (mi.Text or "").startswith("下载新版本"):
+                        self._menu.MenuItems.Remove(mi)
+                mi_dl = WinForms.MenuItem(f"下载新版本 {ver}")
+                mi_dl.Click += lambda s, e: self._open_url(url)
+                idx = self._menu.MenuItems.IndexOf(self._mi_exit) if self._mi_exit else self._menu.MenuItems.Count - 1
+                self._menu.MenuItems.Add(idx, mi_dl)
+            except Exception as e:
+                print(f"[Update] menu add failed: {e}")
+
+        if self._notify is None:
+            return
+        if w is not None:
+            ui_invoke(w, _act)
+        else:
+            try:
+                _act()
+            except Exception:
+                pass
+
+    def _open_url(self, url):
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
 
     def _sync_bosskey(self, hidden):
         """让老板键的隐藏态与托盘操作保持一致，避免下次按老板键方向反了。"""

@@ -251,7 +251,7 @@
           </div>
         </div>
         <div class="u-pt-5">
-          <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.smartAdRemove" @change="saveCfg"> 智能去广告 </label>
+          <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.smartAdRemove" @change="saveCfg"> 智能去广告 </label>
           <p class="ts-hint u-mt-2">自动识别并剔除片头 / 片中广告切片（基于切片源差异与 discontinuity），只播放正片。关闭则原样加载。</p>
         </div>
         <div class="u-pt-5">
@@ -266,8 +266,8 @@
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">系统行为</label>
           <div class="u-space-y-2">
-            <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.autostart" @change="toggleAutostart"> 开机自启 </label>
-            <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.closeToTray" @change="saveCfg()"> 关闭窗口时最小化到托盘 </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.autostart" @change="toggleAutostart"> 开机自启 </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.closeToTray" @change="saveCfg()"> 关闭窗口时最小化到托盘 </label>
           </div>
           <p class="ts-hint u-mt-2">开启后点击关闭按钮会隐藏到系统托盘，可通过托盘图标或老板键恢复。</p>
         </div>
@@ -415,11 +415,11 @@
       <div class="u-space-y-4 u-pt-1">
         <div>
           <p class="ts-label u-mb-3">本源跳过片头片尾（优先于全局）</p>
-          <div class="u-flex u-items-center u-gap-4 u-mb-2">
+          <div class="u-flex u-items-center u-mb-2">
             <label class="ts-label--checkbox"> <input type="checkbox" class="ts-checkbox" checked="" x-model="editingSource.skipIntrot"> 跳过片头 </label>
             <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.introTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒</span></div>
           </div>
-          <div class="u-flex u-items-center u-gap-4 u-mb-2">
+          <div class="u-flex u-items-center u-mb-2">
             <label class="ts-label--checkbox"> <input type="checkbox" class="ts-checkbox" checked="" x-model="editingSource.skipOutro"> 跳过片头 </label>
             <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.outroTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒(倒计时)</span></div>
           </div>

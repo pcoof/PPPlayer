@@ -90,10 +90,7 @@ body { font-family: var(--font); background: var(--bg); }
                 <p id="panelDesc" class="pp-desc"></p>
                 <div id="panelActor" class="pp-actors"></div>
                 <!-- 线路切换（放在详情Tab中） -->
-                <div id="panelSourceWrap" class="pp-source-section" style="display:none">
-                    <h4 class="pp-section-title">线路</h4>
-                    <div id="panelSources" class="pp-sources"></div>
-                </div>
+
             </div>
             <!-- Tab: 设置 -->
             <div class="pp-tab-panel" data-tab="setting">
@@ -101,14 +98,14 @@ body { font-family: var(--font); background: var(--bg); }
                     <div class="pp-setting-row">
                         <div>
                             <div class="pp-setting-label">翻页显示</div>
-                            <div class="pp-setting-hint">选集上方显示分页标签</div>
+                            <div class="pp-setting-hint">视频右侧显示上下集切换按钮</div>
                         </div>
                         <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
                     </div>
                     <div class="pp-setting-group">
-                        <label class="pp-toggle-line u-text-sm u-text-ink-2">
+                        <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
                             <span>进度跳过（片头）</span>
-                            <input type="checkbox" id="ppSkipIntro" onchange="onSkipToggle('intro')" class="ts-check">
+                            <input type="checkbox" id="ppSkipIntro" onchange="onSkipToggle('intro')" class="ts-checkbox">
                         </label>
                         <div class="pp-sub-line" id="introSub">
                             <input type="number" min="0" id="ppIntroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()">
@@ -117,9 +114,9 @@ body { font-family: var(--font); background: var(--bg); }
                         </div>
                     </div>
                     <div class="pp-setting-group">
-                        <label class="pp-toggle-line u-text-sm u-text-ink-2">
+                        <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
                             <span>进度跳过（片尾）</span>
-                            <input type="checkbox" id="ppSkipOutro" onchange="onSkipToggle('outro')" class="ts-check">
+                            <input type="checkbox" id="ppSkipOutro" onchange="onSkipToggle('outro')" class="ts-checkbox">
                         </label>
                         <div class="pp-sub-line" id="outroSub">
                             <input type="number" min="0" id="ppOutroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()">
@@ -127,13 +124,14 @@ body { font-family: var(--font); background: var(--bg); }
                             <button class="ts-ghost-btn u-text-sm" onclick="getRemainingTime()">获取当前</button>
                         </div>
                     </div>
-                    <div class="pp-setting-row">
-                        <button class="ts-ghost-btn" onclick="openApiSourceEdit()">编辑 API 源 ›</button>
-                    </div>
                 </div>
             </div>
             <!-- Tab: 选集 -->
             <div class="pp-tab-panel" data-tab="episodes">
+                <div id="panelSourceWrap" class="pp-source-section" style="display:none">
+                    <h4 class="pp-section-title">线路</h4>
+                    <div id="panelSources" class="pp-sources"></div>
+                </div>
                 <h4 class="pp-section-title">选集 <span id="totalEp" class="pp-total"></span></h4>
                 <div id="tabWrap" class="pp-tabs"></div>
                 <div class="pp-ep-scroll ts-scroll">
@@ -268,6 +266,7 @@ function createSlide(ep, epIndex) {
     const nextCls = 'trigger-btn next-ep-btn' + (atLast ? ' is-disabled' : '');
     const prevDisabled = atFirst ? ' disabled' : '';
     const nextDisabled = atLast ? ' disabled' : '';
+    const pagDisp = (typeof ppSettings !== 'undefined' && ppSettings.pagination) ? '' : 'none';
     return '' +
 '<div class="swiper-slide u-relative u-overflow-hidden">'+
 '  <div class="xgplayer-blur-bg ui-fade">'+
@@ -276,7 +275,7 @@ function createSlide(ep, epIndex) {
 '  <div class="player-box ui-wrap u-flex" data-ep-index="' + epIndex + '">'+
 '    <div id="xg-' + epIndex + '" class="xg-container" style="width:100%;height:100%"></div>'+
 '    <!-- PC 右侧上下切换 -->'+
-'    <div class="sider-trigger ui-fade">'+
+'    <div class="sider-trigger ui-fade" style="display:' + pagDisp + '">'+
 '      <button class="'+ prevCls +'"' + prevDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"><g opacity="1"> <path d="M7.26904 16.3162C6.7251 15.7723 6.7251 14.8904 7.26904 14.3465L12.325 9.29053C12.8689 8.74658 13.7508 8.74658 14.2948 9.29053L14.3061 9.30196L19.3506 14.3465C19.8946 14.8905 19.8946 15.7724 19.3506 16.3163C18.8067 16.8603 17.9248 16.8603 17.3808 16.3163L13.3098 12.2453L9.23884 16.3162C8.69489 16.8602 7.81299 16.8602 7.26904 16.3162Z" fill="currentColor"></path> </g> </svg></button>'+
 '      <button class="'+ nextCls +'"' + nextDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"> <g opacity="1"> <path d="M7.26904 9.29059C6.7251 9.83453 6.7251 10.7164 7.26904 11.2604L12.325 16.3163C12.8689 16.8603 13.7508 16.8603 14.2948 16.3163L14.3061 16.3049L19.3506 11.2603C19.8946 10.7164 19.8946 9.83447 19.3506 9.29053C18.8067 8.74658 17.9248 8.74658 17.3808 9.29053L13.3098 13.3616L9.23884 9.29059C8.69489 8.74664 7.81299 8.74665 7.26904 9.29059Z" fill="currentColor"></path> </g> </svg></button>'+
 '    </div>'+
@@ -293,10 +292,10 @@ function createSlide(ep, epIndex) {
 '    <span class="content idx_name u-text-sm" style="color:#ddd">'+ep.name+'</span>'+
 '    <span class="u-text-xs" style="color:var(--accent)">#'+(metaTags[0]||'')+'</span>'+
 '  </div>'+
-'  <div class="u-inline-flex u-max-w-full u-w-auto u-row u-items-center u-gap-2 u-rounded-md u-p-3 u-mt-2 u-cursor-pointer open-panel-btn" style="background:rgba(255,255,255,0.08)">'+
+'  <div><div class="u-inline-flex u-max-w-full u-w-auto u-row u-items-center u-gap-2 u-rounded-md u-p-3 u-mt-2 u-cursor-pointer open-panel-btn" style="background:rgba(255,255,255,0.08)">'+
 '    <svg class="u-flex-none" width="16" height="16" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path d="M8 0a1.92 1.92 0 0 0-.765.16L.707 3.205l-.016.008a1.212 1.212 0 0 0 0 2.163l.018.01 6.514 3.018.012.004a1.919 1.919 0 0 0 1.53 0l6.528-3.047.016-.007a1.213 1.213 0 0 0 0-2.164l-.018-.01L8.777.165 8.765.159A1.92 1.92 0 0 0 8 0zm7.921 7.88c.198.43.01.94-.42 1.138l-6.703 3.089-.003.002a1.956 1.956 0 0 1-1.624 0l-.003-.002-6.671-3.09a.857.857 0 0 1 .72-1.555l6.668 3.087a.241.241 0 0 0 .198 0l6.702-3.088a.856.856 0 0 1 1.136.42zm-.42 4.853a.857.857 0 0 0-.716-1.556l-6.702 3.086a.247.247 0 0 1-.198.001l-6.668-3.087a.858.858 0 0 0-.72 1.556l6.67 3.089.004.001a1.954 1.954 0 0 0 1.624 0h.003l6.704-3.089z" fill="#FFF"></path></g></svg>'+
 '    <span class="u-whitespace-nowrap u-text-sm">合集(共'+episodeList.length+'集)</span>'+
-'  </div>'+
+'  </div></div>'+
 '</div>'+
 '<div class="floating-actions ui-fade">'+
 '  <button title="收藏" onclick="event.stopPropagation();toggleFav()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'+
@@ -440,10 +439,10 @@ async function initPlayer(wrapEl, shouldPlay) {
             }
         });
 
-        // 合集按钮 → 打开右侧面板
+        // 合集按钮 → 打开右侧面板并显示「选集」Tab
         var openBtn = wrapEl.querySelector('.open-panel-btn');
         if (openBtn) {
-            openBtn.onclick = function() { renderSidePanel(); togglePanel(true); };
+            openBtn.onclick = function() { renderSidePanel(); togglePanel(true); switchPanelTab('episodes'); };
         }
 
         // 右侧上下切换按钮
@@ -723,6 +722,9 @@ function savePlayerSettings() {
     try { localStorage.setItem('cms_player_settings', JSON.stringify(ppSettings)); } catch (e) {}
 }
 function applyPlayerSettings() {
+    // 翻页显示开关 → 视频右侧上下集切换按钮(.sider-trigger)显隐
+    var triggers = document.querySelectorAll('.sider-trigger');
+    triggers.forEach(function(el) { el.style.display = ppSettings.pagination ? '' : 'none'; });
     var tabWrap = document.getElementById('tabWrap');
     if (tabWrap) tabWrap.style.display = ppSettings.pagination ? '' : 'none';
     var tp = document.getElementById('ppTogglePagination');
@@ -834,6 +836,7 @@ function openSettingsPanel() {
     renderSidePanel();
     applyPlayerSettings();
     togglePanel(true);
+    switchPanelTab('setting');
 }
 
 // ==================== 入口 ====================
