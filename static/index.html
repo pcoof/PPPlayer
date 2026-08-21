@@ -251,18 +251,14 @@
           </div>
         </div>
         <div class="u-pt-5">
-          <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2 u-cursor-pointer">
-            <input type="checkbox" x-model="cfg.smartAdRemove" @change="saveCfg()" class="u-rounded u-accent"> 智能去广告
-          </label>
+          <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.smartAdRemove" @change="saveCfg"> 智能去广告 </label>
           <p class="ts-hint u-mt-2">自动识别并剔除片头 / 片中广告切片（基于切片源差异与 discontinuity），只播放正片。关闭则原样加载。</p>
         </div>
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">老板键</label>
           <p class="ts-hint u-mb-3">点击输入框后按一次组合键即可设为「隐藏 / 显示」快捷键（如 Ctrl+Shift+H）。触发后隐藏主窗口与播放窗口，再次按下恢复。</p>
           <div class="u-flex u-items-center u-gap-2">
-            <input type="text" id="bossKeyInput" readonly x-model="cfg.bossKey"
-                   :placeholder="bossKeyListening ? '请按下组合键…' : '未设置'"
-                   @click="startBossKeyCapture()" class="ts-field u-grow">
+            <input type="text" id="bossKeyInput" readonly x-model="cfg.bossKey" :placeholder="bossKeyListening ? '请按下组合键…' : '未设置'" @click="startBossKeyCapture()" class="ts-field u-grow">
             <button @click="resetBossKey()" class="ts-ghost-btn">重置</button>
           </div>
           <p class="ts-hint u-mt-2" x-text="cfg.bossKey ? ('当前老板键：' + cfg.bossKey + '（按此组合键隐藏 / 显示窗口）') : '未设置老板键'"></p>
@@ -270,14 +266,8 @@
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">系统行为</label>
           <div class="u-space-y-2">
-            <label class="u-flex u-items-center u-gap-2 u-text-sm u-text-ink-2 u-cursor-pointer">
-              <input type="checkbox" x-model="cfg.autostart" @change="toggleAutostart" class="u-rounded u-accent">
-              开机自启
-            </label>
-            <label class="u-flex u-items-center u-gap-2 u-text-sm u-text-ink-2 u-cursor-pointer">
-              <input type="checkbox" x-model="cfg.closeToTray" @change="saveCfg()" class="u-rounded u-accent">
-              关闭窗口时最小化到托盘
-            </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.autostart" @change="toggleAutostart"> 开机自启 </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-gap-4 u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.closeToTray" @change="saveCfg()"> 关闭窗口时最小化到托盘 </label>
           </div>
           <p class="ts-hint u-mt-2">开启后点击关闭按钮会隐藏到系统托盘，可通过托盘图标或老板键恢复。</p>
         </div>
@@ -426,11 +416,11 @@
         <div>
           <p class="ts-label u-mb-3">本源跳过片头片尾（优先于全局）</p>
           <div class="u-flex u-items-center u-gap-4 u-mb-2">
-            <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2"><input type="checkbox" x-model="editingSource.skipIntro" class="u-rounded u-accent"> 跳过片头</label>
+            <label class="ts-label--checkbox"> <input type="checkbox" class="ts-checkbox" checked="" x-model="editingSource.skipIntrot"> 跳过片头 </label>
             <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.introTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒</span></div>
           </div>
           <div class="u-flex u-items-center u-gap-4 u-mb-2">
-            <label class="u-flex u-items-center u-gap-1-5 u-text-sm u-text-ink-2"><input type="checkbox" x-model="editingSource.skipOutro" class="u-rounded u-accent"> 跳过片尾</label>
+            <label class="ts-label--checkbox"> <input type="checkbox" class="ts-checkbox" checked="" x-model="editingSource.skipOutro"> 跳过片头 </label>
             <div class="u-flex u-items-center u-gap-2 u-ml-6"><input type="number" min="0" x-model.number="editingSource.outroTime" class="u-w-20 u-px-2 u-py-1-5 ts-field"><span class="u-text-sm u-text-ink-3">秒(倒计时)</span></div>
           </div>
         </div>
@@ -442,7 +432,7 @@
           <p class="ts-hint u-mb-2">勾选后该分类在本源下隐藏。</p>
           <div x-show="showSourceBlacklistPicker" x-cloak class="u-flex u-wrap u-gap-1-5 u-mt-2">
             <div x-show="sourceClassesLoading" x-cloak class="u-text-sm u-text-ink-3 u-py-3">正在加载分类…</div>
-            <div x-show="!sourceClassesLoading && (sourceClassesFetched.length || allClassesList.length)">
+            <div x-show="!sourceClassesLoading && (sourceClassesFetched.length || allClassesList.length)" class="u-flex u-justify-between u-wrap u-gap-1-5">
               <template x-for="c in (sourceClassesFetched.length ? sourceClassesFetched : allClassesList)" :key="c.type_id">
                 <button @click="toggleSourceBlacklist(c)" type="button" class="ts-chip" :class="isSourceBlacklisted(c)?'is-selected':''" x-text="c.type_name"></button>
               </template>

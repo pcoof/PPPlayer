@@ -1,0 +1,14 @@
+# 运行 / 编译依赖（Windows 专属）
+# pythonnet 由 pywebview 在 win32 下自动依赖，这里显式列出以便 PyInstaller 冻结
+pywebview>=5.0
+flask>=3.0
+requests>=2.31
+aiohttp>=3.9
+beautifulsoup4>=4.12
+lxml>=5.0
+m3u8>=4.0
+httpx>=0.27
+pythonnet>=3.1; sys_platform == "win32"
+
+# 打包工具
+pyinstaller>=6.0

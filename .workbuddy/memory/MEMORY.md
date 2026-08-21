@@ -51,6 +51,14 @@ pywebview + Flask 的桌面影音播放器（抖音式竖滑播放页）。WinFo
 - 分集渲染 `activateActiveSlide()`：预渲染 ±1（当前集 `initPlayer(box,true)` 播放、邻集先建好暂停、距当前 >2 销毁释放）。`canplay` 仅 `epIndex===currentActiveIndex` 才 `resize_to_aspect`。
 - **键盘快捷键（空格=播放/暂停、←/→=±5s、F=全屏）：必须以「当前可视 slide」的 video 为唯一目标。** 实现：`getActiveVideo()` 在按键/点击当下读 `verticalSwiper.slides[activeIndex].querySelector('.player-box video')`（实时 DOM）。**勿改回依赖全局 `activePlayer.__box`**——`initPlayer` 是 async（内部 `await` 过滤 m3u8），播放器实例要等异步完成才进 `playerMap`；切到未预渲染的集时同步遍历拿不到新播放器，`activePlayer` 会残留上一集或置空，导致空格误控上一集/隐藏分集。本修复用实时查询彻底消除该竞态（`getActivePlayer()/getActiveSlideBox()` 同理用于「获取当前」与跳过片头片尾设置）。
 
+## 编译 / 打包（PyInstaller）
+- 入口 `main.py`；产物用 **onedir**（`build.spec` + `COLLECT`），不用 onefile。
+  原因：`config_store`/`server` 用 `__file__` 定位 `data/` 与 `static/`，onefile 解包到临时目录且退出即删，会导致配置每次启动重置。
+- `pythonnet` 是 `pywebview` 在 win32 下的隐式依赖（不在 pyproject 显式列出，但运行时必须），冻结时要用 `collect_all('pythonnet')` 收集 `Python.Runtime.dll`，并 hiddenimport `clr`/`pythonnet`/`webview.platforms.edgechromium`/`webview.platforms.winforms`/`src` 业务包。
+- `data/` 已被 `.gitignore` 忽略（运行时生成的用户配置），**不打包**；`static/` 必须 `--add-data` 带出（落在 `dist/TSPlayer/_internal/static`）。
+- 本地 `build.bat` 用 `python -m venv` 自建 venv 后 `pip install -r requirements.txt` 再 `pyinstaller build.spec`；GitHub Actions `build.yml` 在 `windows-latest` + Python 3.13 跑同样流程，打 tag 自动发 Release（压缩为 `TSPlayer-windows.zip`）。
+- PyInstaller 6.x onedir 把依赖放进 `dist/TSPlayer/_internal/`，`src` 纯模块在 CArchive 内（非目录形式，属正常），`static` 为真实目录。
+
 ## 待办/观察
 - `main.py` 中 `sys.setrecursionlimit(5000)` 会放大 CLR 递归冻结风险，建议保持默认（已靠私有属性规避）。
 - 首页自动加载由 `app.cfg.autoLoadMore` 控制；`setupAutoLoad` 的 IntersectionObserver 仅依赖 `autoLoadMore`。

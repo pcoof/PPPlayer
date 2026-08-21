@@ -13,6 +13,29 @@ from src.server import create_app
 FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
+# 应用版本（自动更新比对基准）。格式 YYYYMMDD.N，由 CI 工作流自动自增并同步。
+__version__ = "20260820.0"
+
+# 自动更新：GitHub Releases 检测
+GITHUB_REPO = "pcoof/tsplayer-pywebview"
+GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
+GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"
+
+
+def _parse_app_version(v):
+    """把 'v20260820.1' / '20260820.1' 解析为 (日期int, 序号int) 元组，便于比较大小。"""
+    if not v:
+        return None
+    v = str(v).lstrip('vV')
+    try:
+        parts = v.split('.')
+        date_part = int(parts[0])
+        n_part = int(parts[1]) if len(parts) > 1 else 0
+        return (date_part, n_part)
+    except Exception:
+        return None
+
 
 def ui_invoke(window, fn):
     """把「触碰原生 WinForms 控件」的操作强制切回 UI(STA) 线程执行，返回 fn 的结果。
@@ -409,13 +432,15 @@ class TrayManager:
     主窗口关闭时 → 最小化到托盘（受设置 closeToTray 控制）
     """
 
-    GITHUB_URL = "https://github.com"
+    GITHUB_URL = GITHUB_REPO_URL
 
     def __init__(self, manager):
         self._mgr = manager
         self._notify = None
         self._menu = None
         self._ctx = None  # WindowsFormsContext
+        self._mi_exit = None       # 退出项引用，便于在它前面插入「下载新版本」
+        self._latest_update = None  # {'version': str, 'url': str}
 
     def create(self):
         """创建托盘图标。
@@ -451,12 +476,21 @@ class TrayManager:
             mi_github.Click += self._on_github
             self._menu.MenuItems.Add(mi_github)
 
+            # 检查更新（手动触发，后台查询 GitHub Releases）
+            mi_check = WinForms.MenuItem("检查更新")
+            mi_check.Click += self._on_check_update
+            self._menu.MenuItems.Add(mi_check)
+
             self._menu.MenuItems.Add("-")
 
             # 退出
             mi_exit = WinForms.MenuItem("退出")
             mi_exit.Click += self._on_exit
             self._menu.MenuItems.Add(mi_exit)
+            self._mi_exit = mi_exit
+
+            # 启动后静默自动检测新版本（后台线程 + UI 线程气泡，不阻塞启动）
+            self.check_update(show_no_update=False)
 
             self._notify = WinForms.NotifyIcon()
             self._notify.Text = "TSPlayer"
