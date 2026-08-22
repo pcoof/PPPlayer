@@ -35,7 +35,7 @@ jobs:
       serial_num: ${{ steps.gen_version.outputs.serial_num }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-tags: true
 
@@ -71,7 +71,7 @@ jobs:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -79,6 +79,7 @@ jobs:
         run: |
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
 
       - name: Update pyproject.toml version
         if: hashFiles('pyproject.toml') != ''
@@ -129,7 +130,7 @@ jobs:
       ARTIFACT_SUFFIX: ${{ matrix.artifact-suffix }}
     steps:
       - name: Checkout (含版本变更提交)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           fetch-depth: 0
@@ -179,7 +180,7 @@ jobs:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
     steps:
       - name: Checkout full repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           fetch-tags: true
@@ -188,6 +189,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./release-assets
+
+      - name: Setup Git identity & auth
+        run: |
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
 
       - name: Create & push Git version tag
         run: |
