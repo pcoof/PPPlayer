@@ -1156,8 +1156,8 @@ wheels = [
 
 [[package]]
 name = "tsplayer-pywebview"
-version = "1.0.0"
-source = { virtual = "." }
+version = "20260821.0"
+source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "beautifulsoup4" },

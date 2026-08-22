@@ -673,7 +673,7 @@ img.xgplayer-blur-img  {-webkit-touch-callout: none; -webkit-user-select: none; 
 
 /* ---------- 圆角 / 辉光令牌应用（使主题可改变形状与发光） ---------- */
 .ts-card, .ts-modal { border-radius: var(--radius-card, 16px); }
-.ts-icon-btn, .ts-win-btn, .ts-ghost-btn, .ts-btn-primary, .ts-btn-ghost, .ts-field, .ts-select, .ts-seg button, .ts-src, .ts-add-dashed, .ts-info-note, .ts-cta, .ts-dropdown, .ts-cat-menu, .ts-dropdown-item, .ts-list-item, .ts-tab ,.ts-cat{ border-radius: var(--radius-btn, 11px); --shadow-sm: 5px 5px var(--accent);}
+.ts-icon-btn, .ts-win-btn, .ts-ghost-btn, .ts-btn-primary, .ts-btn-ghost, .ts-field, .ts-select, .ts-seg button, .ts-src, .ts-add-dashed, .ts-info-note, .ts-cta, .ts-dropdown, .ts-cat-menu, .ts-dropdown-item, .ts-list-item, .ts-tab ,.ts-cat{ border-radius: var(--radius-btn, 11px); }
 .ts-drawer { border-top-left-radius: var(--radius-card, 16px); border-bottom-left-radius: var(--radius-card, 16px); }
 
 /* ---------- 主题风格选择（设置 · 基础） ---------- */
@@ -867,6 +867,6 @@ html[data-theme="cyber1"] {--paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff
 html.dark[data-theme="cyber1"] {--paper:#146c6e; --paper-2:#259fa1; --surface:#2c7776; --surface-2:#2e2413; --ink:#fff; --ink-2: #89dbe0; --ink-3: #bcfffa; --line:#03aa99; --line-strong:#4d3c1c; --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#b0fbfc; --accent-contrast:#ffffff; --danger:#008d7e; --danger-soft:#102a3a; --ring: rgb(59 248 255 / 50%); --shadow-sm:0 2px 0 rgba(0,0,0,.4),0 8px 22px rgba(0,0,0,.5); --shadow-lg:0 18px 48px rgba(0,0,0,.62); --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;}
 
 /* —— 野兽风格 —— */
-
+html[data-theme="brutalist"] {--paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff; --surface-2: #008d7e; --ink: #077379; --ink-2:#22565c; --ink-3:#03615a; --line: #57a2a4; --line-strong:#00fff0; --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#dcffff; --accent-contrast:#ffffff; --danger:#00b0b8; --danger-soft:#d9ecff; --ring: rgb(45 248 255 / 45%); --shadow-sm:6px 6px 12px rgba(0, 0, 0, 0.15), -6px -6px 12px rgba(255, 255, 255, 0.4), inset 3px 3px 6px rgba(0, 0, 0, 0.1), inset -3px -3px 6px rgba(255, 255, 255, 0.3); --shadow-lg:0 16px 44px rgba(26,18,6,.18); --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;}
 
 

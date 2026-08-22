@@ -44,7 +44,7 @@ function app() {
             { id: 'futurism', name: '未来主义', swatch: 'background:linear-gradient(135deg,#eef1f6 0 50%,#2f6bff 50% 100%)' },
             { id: 'pop', name: '波普艺术', swatch: 'background:linear-gradient(135deg,#fff8e1 0 50%,#ff2d55 50% 100%)' },
             { id: 'cyber1', name: '朋克赛博', swatch: 'background:linear-gradient(135deg,#008d7e 0 50%,#070b16 50% 100%)' },
-            { id: 'ysskin', name: '野兽风格', swatch: 'background:linear-gradient(135deg,#ffd23f 0 50%,#070b16 50% 100%)' }
+            { id: 'brutalist', name: '野兽风格', swatch: 'background:linear-gradient(135deg,#ffd23f 0 50%,#070b16 50% 100%)' }
         ],
         editingIdx: null,
         editingSource: { name: '', url: '' },
