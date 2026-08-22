@@ -81,7 +81,7 @@ jobs:
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
 
       - name: Update pyproject.toml version
-        if: exists('pyproject.toml')
+        if: hashFiles('pyproject.toml') != ''
         run: |
           pip install toml
           python - <<EOF
@@ -93,7 +93,7 @@ jobs:
           EOF
 
       - name: Sync main.py __version__
-        if: exists('main.py')
+        if: hashFiles('main.py') != ''
         run: |
           python - <<'PY'
           import re
@@ -136,14 +136,14 @@ jobs:
 
       # Python uv Build Skill：跨平台产出 wheel + sdist
       - name: Setup Python + uv
-        if: exists('pyproject.toml')
+        if: hashFiles('pyproject.toml') != ''
         uses: astral-sh/setup-uv@v3
         with:
           version: latest
           python-version: "3.13"
 
       - name: Python build wheel & sdist
-        if: exists('pyproject.toml')
+        if: hashFiles('pyproject.toml') != ''
         run: uv build --out-dir ${{ env.DIST_DIR }}
 
       # 桌面独立二进制（本应用为 Windows 专属，仅在 windows-latest 用 PyInstaller 打包）
