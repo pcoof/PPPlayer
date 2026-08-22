@@ -210,9 +210,10 @@ jobs:
           PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           RANGE=$([ -n "$PREV" ] && echo "$PREV..HEAD" || echo "HEAD")
           git log --pretty=format:"- %s" $RANGE >> CHANGELOG.md
-          echo "changelog<<EOF" >> $GITHUB_ENV
-          cat CHANGELOG.md >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "" >> CHANGELOG.md
+          echo "changelog<<CHANGELOG_EOF" >> "$GITHUB_ENV"
+          cat CHANGELOG.md >> "$GITHUB_ENV"
+          echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
