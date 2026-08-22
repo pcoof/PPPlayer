@@ -14,7 +14,7 @@ FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
 # 应用版本（自动更新比对基准）。格式 YYYYMMDD.N，由 CI 工作流自动自增并同步。
-__version__ = "20260822.1"
+__version__ = "20260822.2"
 
 # 自动更新：GitHub Releases 检测
 GITHUB_REPO = "pcoof/tsplayer-pywebview"
