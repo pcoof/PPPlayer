@@ -7,4 +7,9 @@ dist/
 build/
 *.log
 .venv/
-data
+data/
+Skills.md
+/data
+/.workbuddy
+*.pyc
+/.workbuddy

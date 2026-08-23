@@ -16,4 +16,4 @@ build-backend = "hatchling.build"
 packages = [ "src",]
 
 [tool.hatch.build.targets.sdist]
-include = [ "src", "main.py", "static", "build.spec", "requirements.txt", "pyproject.toml",]
+include = [ "src", "main.py", "static", "build.spec", "pyproject.toml",]

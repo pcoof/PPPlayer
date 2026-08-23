@@ -1156,7 +1156,7 @@ wheels = [
 
 [[package]]
 name = "tsplayer-pywebview"
-version = "20260821.0"
+version = "20260822.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
