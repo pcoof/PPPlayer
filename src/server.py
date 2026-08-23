@@ -6,6 +6,7 @@ import requests as req
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import os
+import sys
 import uuid
 
 from .parser.sniffer import parse_play_url
@@ -13,7 +14,14 @@ from .parser.m3u8_filter import filter_m3u8, filter_m3u8_text, USER_AGENT
 from .cms.detector import detect_cms
 from .config_store import load_all, save_all
 
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+# 静态资源目录：
+# - 开发态：项目根 /static
+# - 冻结态：PyInstaller 把 static 打进 sys._MEIPASS（onefile 临时解包 / onedir 程序目录），从那里读取。
+if getattr(sys, "frozen", False):
+    _BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+else:
+    _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(_BASE, "static")
 
 # ── 共享 HTTP 连接池（核心优化）───────────────────────────
 # 以往每个 .ts 切片都用 req.get() 新建连接 → 每片都要重新 DNS+TCP+TLS 握手，

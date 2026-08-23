@@ -5,10 +5,17 @@
 
 import json
 import os
+import sys
 import threading
 
-# 数据文件路径：项目根目录下的 data/config.json
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 数据文件路径：运行时 data/config.json
+# - 开发态：项目根 /data
+# - 冻结态（PyInstaller onefile/onedir）：跟随可执行文件所在目录，
+#   便携版配置随 exe 存放，持久化且可携带（不依赖临时解包目录，退出不丢失）。
+if getattr(sys, "frozen", False):
+    _PROJECT_ROOT = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 _CONFIG_FILE = os.path.join(_DATA_DIR, "config.json")
 

@@ -147,16 +147,35 @@ jobs:
         if: hashFiles('pyproject.toml') != ''
         run: uv build --out-dir ${{ env.DIST_DIR }}
 
-      # 桌面独立二进制（本应用为 Windows 专属，仅在 windows-latest 用 PyInstaller 打包）
-      - name: Build Windows desktop binary (PyInstaller)
+      # 桌面独立二进制（Windows 专属）：单文件便携版 + 安装包
+      - name: Build Windows portable single-file exe
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           uv venv
           uv pip install -r requirements.txt
-          uv run pyinstaller build.spec --noconfirm --clean
-          mkdir archive
-          Compress-Archive -Force -Path dist/TSPlayer -DestinationPath archive/TSPlayer-${{ env.ARTIFACT_SUFFIX }}-${{ env.FULL_VER }}.zip
+          uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=tsplayer-win `
+            --add-data "static;static" `
+            --hidden-import clr --hidden-import pythonnet `
+            --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms `
+            --hidden-import src --hidden-import src.server --hidden-import src.config_store `
+            --hidden-import src.parser.sniffer --hidden-import src.parser.m3u8_filter `
+            --hidden-import src.cms --hidden-import src.cms.detector --hidden-import src.cms.base `
+            --hidden-import src.cms.apple_cms --hidden-import src.cms.feifei_cms `
+            --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint `
+            --collect-all pythonnet `
+            main.py --noconfirm --clean
+          if (-not (Test-Path dist/tsplayer-win.exe)) { throw "PyInstaller build failed" }
+          New-Item -ItemType Directory -Force -Path archive | Out-Null
+          Copy-Item dist/tsplayer-win.exe archive/tsplayer-win.exe
+          Compress-Archive -Force -Path dist/tsplayer-win.exe -DestinationPath archive/tsplayer-win-portable.zip
+
+      - name: Build Windows installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        uses: amake/innosetup-actions@v1
+        with:
+          file: installer.iss
+          args: /dMyAppVersion=${{ env.FULL_VER }}
 
       # Archive Compress Skill：Linux/macOS 用 tar.gz，Windows 用 zip
       - name: Archive wheel/sdist (Linux/macOS)
@@ -198,8 +217,15 @@ jobs:
 
       - name: Create & push Git version tag
         run: |
-          git tag -a v${{ env.FULL_VER }} -m "Release v${{ env.FULL_VER }}"
-          git push origin v${{ env.FULL_VER }}
+          git fetch --tags origin
+          TAG="v${{ env.FULL_VER }}"
+          if git ls-remote --tags --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists remotely; deleting before recreate..."
+            git push origin ":refs/tags/$TAG"
+            git tag -d "$TAG" 2>/dev/null || true
+          fi
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
 
       - name: Auto generate changelog
         id: gen_changelog
@@ -214,6 +240,17 @@ jobs:
           echo "changelog<<CHANGELOG_EOF" >> "$GITHUB_ENV"
           cat CHANGELOG.md >> "$GITHUB_ENV"
           echo "CHANGELOG_EOF" >> "$GITHUB_ENV"
+
+      - name: Remove existing GitHub Release (idempotent re-run)
+        run: |
+          TAG="v${{ env.FULL_VER }}"
+          REL_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" | jq -r '.id // empty')
+          if [ -n "$REL_ID" ]; then
+            curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$REL_ID"
+            echo "Deleted existing release $REL_ID"
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
