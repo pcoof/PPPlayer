@@ -494,7 +494,7 @@ class TrayManager:
             self._notify.ContextMenu = self._menu
             # 图标：优先取项目自带 ico → 其次可执行文件关联图标 → 最后系统默认应用图标
             icon = None
-            ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'favicon.ico')
+            ico_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '', 'logo.ico')
             if os.path.exists(ico_path):
                 try:
                     icon = Icon(ico_path)
@@ -1307,7 +1307,7 @@ def main() -> None:
     try:
         webview.settings['ALLOW_DOWNLOADS'] = True
     except Exception as e:
-        print(f"[Settings] enable downloads failed: {e}")
+        print(f"[Settings] 启用下载功能失败： {e}")
 
     # webview.start(func=...) 的回调运行在「工作线程」，而 NotifyIcon 必须在 UI(STA)
     # 线程创建，否则托盘图标常常不显示。这里等窗口原生句柄就绪，再 Invoke 过去创建。
@@ -1321,12 +1321,12 @@ def main() -> None:
                         print("[Tray] create returned falsy")
                     return
                 time.sleep(0.1)
-            print("[Tray] window handle not ready, create on current thread as fallback")
+            print("[Tray] 窗口句柄尚未就绪，作为备用方案在当前线程创建")
             player_mgr.tray.create()
         except Exception as e:
-            print(f"[Tray] init in loaded failed: {e}")
+            print(f"[Tray] 加载中的初始化失败: {e}")
 
-    webview.start(debug=True, func=_on_loaded)
+    webview.start(debug=True, func=_on_loaded,icon='/logo.ico')
 
     sys.exit(0)
 

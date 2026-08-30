@@ -185,7 +185,10 @@
 <div x-show="showFav" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-6" x-transition:enter-end="opacity-100 translate-x-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click.away="showFav=false" class="u-fixed u-inset-y u-right-0 u-z40 u-w-420 u-max-w-full ts-drawer ts-scroll">
   <div class="ts-drawer-head">
     <h2 class="ts-drawer-title">我的收藏</h2>
-    <button @click="showFav=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+    <div class="u-flex u-items-center u-gap-2">
+      <button @click="clearFav()" class="ts-danger-text u-px-3 u-py-1-5 u-text-xs u-rounded-lg u-hover-danger-soft u-transition-colors">清空</button>
+      <button @click="showFav=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
+    </div>
   </div>
   <div class="ts-hist u-grow u-px-3 u-py-3 ts-scroll">
     <template x-for="item in fav" :key="item.vod_id">
@@ -195,7 +198,7 @@
           <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
           <p class="ts-list-sub" x-text="item.type_name || ''"></p>
         </div>
-        <button @click.stop="toggleFav(item)" class="u-p-2 u-text-danger u-hover-danger-soft u-rounded-lg u-transition-colors">
+        <button @click.stop="toggleFav(item)" class="ts-fav-btn u-p-2 u-text-danger u-hover-danger-soft u-rounded-lg u-transition-colors">
           <svg class="u-w-4 u-h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
         </button>
       </div>
@@ -379,11 +382,13 @@
             <input type="file" x-ref="importFile2" @change="importSources($event)" accept=".json" class="u-hidden">
           </div>
         </div>
-        <div class="u-pt-5 ts-info-note">
-          <svg class="u-w-5 u-h-5 u-text-accent u-shrink-0 u-mt-0-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
-          <div>
-            <p class="ts-info-note-t">数据存储说明</p>
-            <p class="d">配置保存在本地 <code>data/config.json</code>，卸载前请导出备份。</p>
+        <div class="u-pt-5 ">
+          <div class="ts-info-note">
+            <svg class="u-w-5 u-h-5 u-text-accent u-shrink-0 u-mt-0-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+            <div>
+              <p class="ts-info-note-t">数据存储说明</p>
+              <p class="d">配置保存在本地 <code>data/config.json</code>，卸载前请导出备份。</p>
+            </div>
           </div>
         </div>
       </div>

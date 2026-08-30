@@ -629,6 +629,7 @@ function app() {
         },
 
         clearHist() { if (!confirm('确定清空所有播放历史？')) return; this.his = []; this.saveAllDataDebounced(); },
+        clearFav() { if (!confirm('确定清空所有收藏历史？')) return; this.fav = []; this.saveAllDataDebounced(); },
         formatTime(ts) { return ts ? new Date(ts).toLocaleString() : ''; },
 
         addSource() {

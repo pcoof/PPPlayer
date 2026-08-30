@@ -244,8 +244,9 @@ body.is-fullscreen .pp-topbar ~ * {
 .ts-drawer {background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
 .ts-drawer-head {display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .ts-drawer-title {font-size: 18px; color: var(--ink); }
-.ts-list-item {display: flex; align-items: center; cursor: pointer; transition: background-color .2s; box-shadow: var(--shadow-sm); flex-direction: column; flex: 0 0 45%; max-width: 190px; break-inside: avoid}
+.ts-list-item {display: flex; padding: 5px; cursor: pointer; transition: background-color .2s; box-shadow: var(--shadow-sm); flex-direction: column; flex: 0 0 45%; max-width: 190px; break-inside: avoid;position: relative;}
 .ts-list-item:hover {background: var(--surface-2); }
+.ts-list-item:hover .ts-fav-btn{opacity: 1; transform: translateY(0) scale(1);}
 .ts-list-thumb { border-radius: 8px; object-fit: cover; flex-shrink: 0; background: var(--surface-2); }
 .ts-list-title {font-size: 13.5px; font-weight: 500; color: var(--ink);white-space: normal; }
 .ts-list-sub {font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
@@ -290,10 +291,7 @@ body.is-fullscreen .pp-topbar ~ * {
 .ts-status-dot.ts-status-error { color: var(--danger); }
 .ts-status-dot.ts-status-checking { color: var(--warn); animation: ts-pulse 1s ease-in-out infinite; }
 .ts-status-dot.ts-status-unknown { color: var(--ink-3); }
-@keyframes ts-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: .35; }
-}
+@keyframes ts-pulse {0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 /* 检测连接按钮：执行中图标旋转动画 */
 .ts-src-check.is-spinning svg {animation: ts-spin .8s linear infinite; }
 /* 分页按钮（语义化，替代 .ts-seg 内嵌 <span> 的写法） */
@@ -319,10 +317,7 @@ body.is-fullscreen .pp-topbar ~ * {
 .ts-info-note code {padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 16%, transparent); font-size: 11.5px; }
 /* ---------- 模态（源编辑） ---------- */
 
-.ts-modal-scrim {
-    background: color-mix(in srgb, #0c0a07 62%, transparent);
-    backdrop-filter: blur(4px);
-}
+.ts-modal-scrim {backdrop-filter: blur(4px); }
 .ts-modal {width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; overflow: hidden; box-shadow: var(--shadow-lg); }
 .ts-modal-title {font-size: 18px; color: var(--ink);padding: 16px 22px; }
 .ts-btn-primary {padding: 9px 22px; border-radius: 12px; font-size: 13.5px; font-weight: 500; background: var(--accent); color: var(--accent-contrast); transition: filter .2s; }
@@ -332,9 +327,7 @@ body.is-fullscreen .pp-topbar ~ * {
 /* ---------- 内联播放容器（renderPlayer 兜底） ---------- */
 
 #playerBox {position: fixed; inset: 0; z-index: 60; background: #000; }
-#playerBox:empty {
-    display: none;
-}
+#playerBox:empty {display: none; }
 /* ---------- 播放页（player.html）共用 token ---------- */
 
 .player-root {--bg: var(--paper-2); --surface: rgba(255, 255, 255, .07); --surface-hover: rgba(255, 255, 255, .14); --text: var(--ink); --text-dim: var(--ink-2); --text-muted: var(--ink-3); --accent: #d4a85a; --accent-dim: rgba(212, 168, 90, .16); }
@@ -863,10 +856,34 @@ html.dark[data-theme="pop"] {
     --radius-card:4px; --radius-btn:4px; --glow:none;
 }
 /* —— 波普艺术 —— */
-html[data-theme="cyber1"] {--paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff; --surface-2: #008d7e; --ink: #077379; --ink-2:#22565c; --ink-3:#03615a; --line: #57a2a4; --line-strong:#00fff0; --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#dcffff; --accent-contrast:#ffffff; --danger:#00b0b8; --danger-soft:#d9ecff; --ring: rgb(45 248 255 / 45%); --shadow-sm:0 2px 0 rgba(26,18,6,.12),0 8px 22px rgba(26,18,6,.1); --shadow-lg:0 16px 44px rgba(26,18,6,.18); --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;}
-html.dark[data-theme="cyber1"] {--paper:#146c6e; --paper-2:#259fa1; --surface:#2c7776; --surface-2:#2e2413; --ink:#fff; --ink-2: #89dbe0; --ink-3: #bcfffa; --line:#03aa99; --line-strong:#4d3c1c; --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#b0fbfc; --accent-contrast:#ffffff; --danger:#008d7e; --danger-soft:#102a3a; --ring: rgb(59 248 255 / 50%); --shadow-sm:0 2px 0 rgba(0,0,0,.4),0 8px 22px rgba(0,0,0,.5); --shadow-lg:0 18px 48px rgba(0,0,0,.62); --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;}
+html[data-theme="cyber1"] {
+    --paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff; --surface-2: #008d7e; 
+    --ink: #077379; --ink-2:#22565c; --ink-3:#03615a; --line: #57a2a4; --line-strong:#00fff0; 
+    --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#dcffff; --accent-contrast:#ffffff; 
+    --danger:#00b0b8; --danger-soft:#d9ecff; --ring: rgb(45 248 255 / 45%); 
+    --shadow-sm:0 2px 0 rgba(26,18,6,.12),0 8px 22px rgba(26,18,6,.1); 
+    --shadow-lg:0 16px 44px rgba(26,18,6,.18); 
+    --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;
+}
+html.dark[data-theme="cyber1"] {
+    --paper:#146c6e; --paper-2:#259fa1; --surface:#2c7776; --surface-2:#2e2413;
+    --ink:#fff; --ink-2: #89dbe0; --ink-3: #bcfffa; --line:#03aa99; --line-strong:#4d3c1c; 
+    --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#b0fbfc; --accent-contrast:#ffffff; 
+    --danger:#008d7e; --danger-soft:#102a3a; --ring: rgb(59 248 255 / 50%); 
+    --shadow-sm:0 2px 0 rgba(0,0,0,.4),0 8px 22px rgba(0,0,0,.5); 
+    --shadow-lg:0 18px 48px rgba(0,0,0,.62); 
+    --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;
+}
 
 /* —— 野兽风格 —— */
-html[data-theme="brutalist"] {--paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff; --surface-2: #008d7e; --ink: #077379; --ink-2:#22565c; --ink-3:#03615a; --line: #57a2a4; --line-strong:#00fff0; --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#dcffff; --accent-contrast:#ffffff; --danger:#00b0b8; --danger-soft:#d9ecff; --ring: rgb(45 248 255 / 45%); --shadow-sm:6px 6px 12px rgba(0, 0, 0, 0.15), -6px -6px 12px rgba(255, 255, 255, 0.4), inset 3px 3px 6px rgba(0, 0, 0, 0.1), inset -3px -3px 6px rgba(255, 255, 255, 0.3); --shadow-lg:0 16px 44px rgba(26,18,6,.18); --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;}
+html[data-theme="brutalist"] {
+    --paper:#e1faff; --paper-2:#259fa1; --surface:#ffffff; --surface-2: #008d7e;
+    --ink: #077379; --ink-2:#22565c; --ink-3:#03615a; --line: #57a2a4; --line-strong:#ffcf4d; 
+    --accent:#21d3d6; --accent-strong:#21d3d6; --accent-soft:#dcffff; --accent-contrast:#ffffff; 
+    --danger:#00b0b8; --danger-soft:#d9ecff; --ring: rgb(45 248 255 / 45%); 
+    --shadow-sm:6px 6px 12px rgba(0, 0, 0, 0.15), -6px -6px 12px rgba(255, 255, 255, 0.4), inset 3px 3px 6px rgba(0, 0, 0, 0.1), inset -3px -3px 6px rgba(255, 255, 255, 0.3); 
+    --shadow-lg:0 16px 44px rgba(26,18,6,.18); 
+    --radius-card:4px; --radius-btn:4px; --glow:none; --text:#fff;
+}
 
 
