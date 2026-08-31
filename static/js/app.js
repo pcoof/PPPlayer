@@ -4,7 +4,7 @@
 
 function app() {
     return {
-        placeholderImg: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjQ1MCIgZmlsbD0iI2U1ZTdlYiIvPjwvc3ZnPg==',
+        placeholderImg: '/static/thumb.svg',
         sources: [],
         cfg: {},
         currentUrlType: 'unknown',
@@ -477,9 +477,23 @@ function app() {
             }
         },
 
+        // 卡片墙滚动到顶部（带平滑动画）。真实滚动容器是内层 .ts-content（overflow-y:auto），
+        // 窗口本身不滚动，故不能用 window.scrollTo —— 否则切源/切分类时列表不会回顶。
+        scrollWallToTop() {
+            const content = document.querySelector('.ts-content');
+            if (content && content.scrollHeight > content.clientHeight) {
+                content.scrollTo({ top: 0, behavior: 'smooth' });
+            } else if (content) {
+                content.scrollTop = 0;
+            } else {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        },
+
         async loadData(loadMore = false) {
             const activeSource = this.getActiveSource();
             if (!activeSource) { this.videos = []; this.totalPages = 1; this.hasMore = false; return; }
+            if (!loadMore) this.scrollWallToTop();
             this.loading = true;
             try {
                 const params = { ac: this.searchWd ? 'search' : 'videolist', pg: this.page };
@@ -503,7 +517,6 @@ function app() {
                     });
                 } else {
                     this.videos = list;
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
                 }
                 // 推断是否还有更多页：
                 // 1) 本页为空 → 无更多；2) 后端真实 pagecount 且 > 当前页 → 有；3) 后端明确末页 → 无；

@@ -238,6 +238,30 @@ body.is-fullscreen .pp-topbar ~ * {
         transform: rotate(360deg);
     }
 }
+/* ---------- 顶部加载进度条（切源 / 切分类 / 加载更多时显示） ---------- */
+.ts-loadbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    z-index: 60;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+    background-size: 45% 100%;
+    background-repeat: no-repeat;
+    animation: ts-loadbar-slide 1.05s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes ts-loadbar-slide {
+    0%   { background-position: -45% 0; }
+    100% { background-position: 145% 0; }
+}
+/* ---------- 初始加载遮罩（居中大转圈） ---------- */
+.ts-loadoverlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 62vh;
+    pointer-events: none;
+}
 /* ---------- 抽屉 / 面板 ---------- */
 .ts-hist{column-gap: .5rem; column-count: 2; position: relative;}
 

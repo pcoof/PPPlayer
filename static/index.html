@@ -118,6 +118,8 @@
 
 <!-- 主内容 -->
 <main class="ts-container ts-content">
+  <!-- 顶部加载进度条：切源 / 切分类 / 加载更多 时显示 -->
+  <div x-show="loading" x-cloak class="ts-loadbar" aria-hidden="true"></div>
   <!-- 空状态：无源 -->
   <div x-show="!sources.length" x-cloak class="ts-empty">
     <div class="ts-empty-icon">
@@ -128,6 +130,10 @@
     <button @click="showSettings=true;settingsTab='sources'" class="ts-cta">去添加</button>
   </div>
 
+  <!-- 初始加载遮罩（切源 / 首次加载时显示居中转圈） -->
+  <div x-show="loading && !videos.length" x-cloak class="ts-loadoverlay">
+    <div class="loading-14" role="status" aria-label="加载中"></div>
+  </div>
 
   <!-- 卡片墙 -->
   <div x-show="videos.length" x-cloak :class="currentListLayout()==='poster' ? 'ts-grid-poster' : 'ts-grid-land'">
