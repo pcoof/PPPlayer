@@ -15,9 +15,8 @@
 from __future__ import annotations
 
 import re
-import requests as req
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+from .http import cms_session
 
 # 看起来是「完整 API 端点」的文件后缀
 _ENDPOINT_EXT = re.compile(r"\.(php|html|htm|json|xml|asp|aspx|jsp)$", re.I)
@@ -53,13 +52,10 @@ def resolve_endpoint(base_url: str) -> str:
 def _probe_format(endpoint: str) -> str | None:
     """探测单个端点的返回格式：'json' / 'xml' / None（无法判断）。"""
     try:
-        resp = req.get(
+        resp = cms_session.get(
             endpoint,
             params={"ac": "videolist", "pg": 1},
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json, text/xml, */*",
-            },
+            headers={"Accept": "application/json, text/xml, */*"},
             timeout=12,
         )
         text = (resp.text or "").strip()

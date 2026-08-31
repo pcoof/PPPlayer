@@ -1,12 +1,11 @@
 """飞飞 CMS (XML API) 适配器"""
 
 from typing import Any
-import requests as req
+
 from lxml import etree
 from .base import BaseCMS
 from .endpoint import resolve_endpoint
-
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+from .http import cms_session
 
 
 class FeifeiCMS(BaseCMS):
@@ -21,10 +20,10 @@ class FeifeiCMS(BaseCMS):
         base = self.base_url.rstrip("/")
         ep = resolve_endpoint(base)
         xml_url = ep if ep == base else (base + "/xml/")
-        resp = req.get(
+        resp = cms_session.get(
             xml_url,
             params=params,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/xml, text/xml"},
+            headers={"Accept": "application/xml, text/xml, */*"},
             timeout=30,
         )
         resp.raise_for_status()

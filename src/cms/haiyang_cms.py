@@ -1,12 +1,11 @@
 """海洋 CMS (XML/JSON 双接口) 适配器"""
 
 from typing import Any
+
 from .base import BaseCMS
 from .apple_cms import AppleCMS
 from .feifei_cms import FeifeiCMS
 from .endpoint import detect_format
-
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
 class HaiyangCMS(BaseCMS):

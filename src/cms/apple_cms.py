@@ -1,11 +1,10 @@
 """苹果 CMS (JSON API) 适配器"""
 
 from typing import Any
-import requests as req
+
 from .base import BaseCMS
 from .endpoint import resolve_endpoint
-
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+from .http import cms_session
 
 
 class AppleCMS(BaseCMS):
@@ -18,10 +17,10 @@ class AppleCMS(BaseCMS):
         已是完整端点（json.html / json.php / provide/vod 等）则原样使用。
         """
         url = resolve_endpoint(self.base_url)
-        resp = req.get(
+        resp = cms_session.get(
             url,
             params=params,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            headers={"Accept": "application/json, text/json, */*"},
             timeout=30,
         )
         resp.raise_for_status()
