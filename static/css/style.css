@@ -121,7 +121,7 @@ html.is-web .win-edge {pointer-events: none !important; }
 html.is-web .ts-toprow, html.is-web .pp-topbar {cursor: default; }
 
 /* ===== 主窗口：正在播放标题栏 ===== */
-.now-playing-bar {background: var(--surface-2, rgba(255,255,255,0.06)); border: 1px solid var(--line, rgba(255,255,255,0.1)); border-radius: 8px; padding: 4px 8px 4px 10px; max-width: 360px; transition: background .2s, border-color .2s; }
+.now-playing-bar {background: var(--surface-2, rgba(255,255,255,0.06)); border: 1px solid var(--line, rgba(255,255,255,0.1)); border-radius: 8px; padding: 4px 8px 4px 10px; max-width: 200px;min-width: 150px; transition: background .2s, border-color .2s; }
 .now-playing-bar:hover {background: var(--surface-3, rgba(255,255,255,0.1)); border-color: var(--accent, #b0823c); }
 .now-playing-dot {width: 8px; height: 8px; border-radius: 50%; background: #e74c3c; flex-shrink: 0; animation: nowPlayingPulse 1.5s ease-in-out infinite; }
 @keyframes nowPlayingPulse {
@@ -911,3 +911,11 @@ html[data-theme="brutalist"] {
 }
 
 
+
+/* 导航分类右键菜单 */
+.ts-ctxmenu { position: fixed; z-index: 80; min-width: 184px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.28); }
+.ts-ctxmenu-title { padding: 4px 10px 8px; font-size: 12px; color: var(--ink-3); border-bottom: 1px solid var(--line); margin-bottom: 4px; white-space: nowrap; }
+.ts-ctxmenu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; background: transparent; color: var(--ink); font-size: 14px; border-radius: 8px; cursor: pointer; text-align: left; }
+.ts-ctxmenu-item:hover { background: var(--surface-2); }
+.ts-ctxmenu-item.is-disabled { opacity: .45; cursor: not-allowed; }
+.ts-ctxmenu-item.is-disabled:hover { background: transparent; }

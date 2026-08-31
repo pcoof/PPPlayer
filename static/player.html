@@ -415,11 +415,13 @@ async function initPlayer(wrapEl, shouldPlay) {
 
         player.on('canplay', function() {
             if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return; // 仅当前集才按视频比例调整窗口
+            if (wrapEl._aspectApplied) return; // 每集只按视频比例调整一次窗口，避免拖动进度条 re-buffer 时反复 resize
             var videoEl = container.querySelector('video');
             if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
                 console.log('[DEBUG] Video size:', videoEl.videoWidth, 'x', videoEl.videoHeight);
                 if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
                     window.pywebview.api.resize_to_aspect(videoEl.videoWidth, videoEl.videoHeight);
+                    wrapEl._aspectApplied = true;
                 }
             }
         });

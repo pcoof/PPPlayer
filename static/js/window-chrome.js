@@ -232,9 +232,19 @@
     startEdgeDrag: function (e, hit) { begin(e, 'resize', hit); }
   };
 
+  // 播放器页面：进度条 / 控制栏 / 音量等交互区域不应触发窗口缩放
+  // （否则在竖屏播放窗口拖动进度条会被当成边缘缩放，窗口尺寸跟着鼠标变）。
+  function isPlayerControlTarget(t) {
+    if (!t || !t.closest) return false;
+    return !!(t.closest('.xgplayer-controls') || t.closest('.xgplayer-progress') ||
+              t.closest('.xgplayer-volume') || t.closest('.xgplayer-slider') ||
+              t.closest('.xgplayer-playbackrate') || t.closest('.xgplayer-definition'));
+  }
+
   function bindEdges() {
     document.querySelectorAll('.win-edge').forEach(function (z) {
       z.addEventListener('mousedown', function (e) {
+        if (isPlayerControlTarget(e.target)) return; // 播放器控件区域不触发窗口缩放
         var hit = parseInt(z.dataset.hit, 10);
         if (window.WindowChrome) window.WindowChrome.startEdgeDrag(e, hit);
       });

@@ -94,7 +94,7 @@
     </div>
   </div>
 
-  <div id="typeNavContainer" x-show="classes.length" x-cloak class="ts-catnav">
+  <div id="typeNavContainer" x-show="classes.length" x-cloak class="ts-catnav" @contextmenu.prevent="openCatCtx($event)">
     <div class="ts-container">
       <div class="u-flex u-items-center u-gap-1 u-py-2">
         <button @click="currentType='0';page=1;loadData()" class="ts-cat" :class="currentType==='0'?'is-active':''">全部</button>
@@ -113,6 +113,23 @@
         </div>
       </div>
     </div>
+  </div>
+  <!-- 导航分类右键菜单 -->
+  <div id="catCtxMenu" x-show="catCtxOpen" x-cloak
+       class="ts-ctxmenu"
+       :style="`left:${catCtxX}px;top:${catCtxY}px`"
+       @click.away="closeCatCtx()"
+       @contextmenu.prevent=""
+       @keydown.escape.window="closeCatCtx()">
+    <div class="ts-ctxmenu-title" x-text="catCtxTitle"></div>
+    <button type="button" class="ts-ctxmenu-item" :class="{'is-disabled': currentType==='0'}" @click="hideCurrentCategory()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12l5 5L18 6"/></svg>
+      <span>隐藏当前分类</span>
+    </button>
+    <button type="button" class="ts-ctxmenu-item" @click="openCategoryManager()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>分类管理</span>
+    </button>
   </div>
 </header>
 

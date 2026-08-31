@@ -31,6 +31,11 @@ function app() {
         showMoreTypes: false,
         showSearchHist: false,
         showSourceBlacklistPicker: false,
+        // 导航分类右键菜单状态
+        catCtxOpen: false,
+        catCtxX: 0,
+        catCtxY: 0,
+        catCtxTitle: '',
         settingsTab: 'basic',
         bossKeyListening: false,
         themeList: [
@@ -664,6 +669,45 @@ function app() {
             if (this.editingSource.url) {
                 this.fetchSourceClasses(this.editingSource.url);
             }
+        },
+
+        // ── 导航分类右键菜单 ──
+        openCatCtx(e) {
+            e.preventDefault();
+            const c = this.currentType === '0' ? null : this.classes.find(x => String(x.type_id) === String(this.currentType));
+            this.catCtxTitle = this.currentType === '0' ? '当前分类：全部' : ('当前分类：' + (c ? c.type_name : this.currentType));
+            const mw = 200, mh = 104;
+            let x = e.clientX, y = e.clientY;
+            if (x + mw > window.innerWidth) x = Math.max(8, window.innerWidth - mw - 8);
+            if (y + mh > window.innerHeight) y = Math.max(8, window.innerHeight - mh - 8);
+            this.catCtxX = x; this.catCtxY = y;
+            this.catCtxOpen = true;
+        },
+
+        closeCatCtx() { this.catCtxOpen = false; },
+
+        // 隐藏当前分类：将其加入激活源的「本源分类黑名单」，刷新后即从导航消失
+        hideCurrentCategory() {
+            if (this.currentType === '0') { alert('请先在导航栏选择一个具体分类'); this.closeCatCtx(); return; }
+            const idx = this.sources.findIndex(s => s.enabled);
+            if (idx < 0) { alert('未找到当前激活源'); this.closeCatCtx(); return; }
+            const src = this.sources[idx];
+            const tid = String(this.currentType);
+            const bl = String(src.blacklist || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (!bl.includes(tid)) bl.push(tid);
+            this.sources[idx] = Object.assign({}, src, { blacklist: bl.join(',') });
+            this.saveSources();
+            this.currentType = '0';
+            this.loadClasses().then(() => this.loadData());
+            this.closeCatCtx();
+        },
+
+        // 分类管理：打开「编辑 API 源」并自动展开分类（黑名单）选择器
+        openCategoryManager() {
+            const idx = this.sources.findIndex(s => s.enabled);
+            if (idx < 0) { alert('未找到当前激活源'); this.closeCatCtx(); return; }
+            this.editSource(idx);
+            this.closeCatCtx();
         },
 
         saveSource() {
