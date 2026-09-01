@@ -249,8 +249,10 @@ def create_app() -> Flask:
         except req.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else 0
             return jsonify({"status": "error", "code": status_code, "message": str(e)})
-        except req.exceptions.ConnectionError:
-            return jsonify({"status": "error", "code": 0, "message": "连接失败"})
+        except req.exceptions.ConnectionError as e:
+            return jsonify({"status": "error", "code": 0, "message": "连接失败：" + str(e)})
+        except OSError as e:  # DNS 解析失败等系统层错误（requests 未统一包装）
+            return jsonify({"status": "error", "code": 0, "message": "连接/解析失败：" + str(e)})
         except req.exceptions.Timeout:
             return jsonify({"status": "error", "code": 0, "message": "连接超时"})
         except Exception as e:

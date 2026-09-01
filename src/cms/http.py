@@ -5,13 +5,16 @@ IPv6；而许多 CMS 源并不真正监听 IPv6，于是握手阶段就被对端
 `ConnectionResetError(10054) / 远程主机强迫关闭了一个现有的连接`。浏览器（Chrome）
 有 Happy Eyeballs，会自动回退到可用的 IPv4，所以出现「浏览器能开、Python 请求 502」。
 
-强制 IPv4 的方案选择：
+地址族策略选择（IPv4 优先 + IPv6 兜底，即 Happy Eyeballs 行为）：
 - 曾经用 `HTTPAdapter.init_poolmanager(socket_family=AF_INET)`，但旧版 urllib3 的
   `PoolKey` 不支持 `key_socket_family`，会直接抛
   `PoolKey.__new__() got an unexpected keyword argument 'key_socket_family'`
   （本仓库运行环境的 urllib3 即此情况）。
-- 现改为**作用域补丁**：在每次请求期间把 `socket.getaddrinfo` 限定为只返回 IPv4 结果。
-  该写法不依赖 urllib3 版本，且对所有 requests 调用透明（`.get()` 仍走 `.request()`）。
+- 也曾经**强制只走 IPv4**（getaddrinfo 只返回 AF_INET），修好了「IPv6 被 RST、IPv4 正常」
+  的那批源；但会误伤「IPv4 不可达、仅 IPv6 可达」的源（表现为 ConnectionError 连接失败）。
+- 现改为**作用域补丁**：每次请求期间把 `socket.getaddrinfo` 的结果重排为「IPv4 在前、
+  IPv6 在后」。urllib3 的 `socket.create_connection` 会逐地址回退——IPv4 优先避开 RST，
+  IPv4 失败再试 IPv6 兜底。该写法不依赖 urllib3 版本，对所有 requests 调用透明。
 """
 from __future__ import annotations
 
@@ -54,26 +57,32 @@ def _make_retry() -> Retry:
 
 
 @contextlib.contextmanager
-def _force_ipv4():
-    """在 with 作用域内把地址解析限定为 IPv4，避免连到不支持的 IPv6 被 RST。"""
+def _prefer_ipv4():
+    """在 with 作用域内把地址解析结果重排为「IPv4 优先、IPv6 兜底」。
+
+    不删除任何地址族：IPv4 在前的列表会让 urllib3 的 create_connection 先试 IPv4，
+    IPv4 不可达时自动回退到 IPv6——既避开「Windows 优先 IPv6 被 RST」的坑，
+    又保留对「仅 IPv6 可达」源的兼容性。
+    """
     orig = socket.getaddrinfo
 
-    def _gai_ipv4(host, port, family=socket.AF_UNSPEC, type=0, proto=0, flags=0):
-        # 只向系统要 AF_INET 结果，等于强制走 IPv4（浏览器 Happy Eyeballs 的回退效果）
-        return orig(host, port, socket.AF_INET, type, proto, flags)
+    def _gai_prefer(host, port, family=socket.AF_UNSPEC, type=0, proto=0, flags=0):
+        results = orig(host, port, family, type, proto, flags)
+        # 稳定性排序：AF_INET 排在前，其余（含 AF_INET6）排在后
+        return sorted(results, key=lambda r: 0 if r[0] == socket.AF_INET else 1)
 
-    socket.getaddrinfo = _gai_ipv4
+    socket.getaddrinfo = _gai_prefer
     try:
         yield
     finally:
         socket.getaddrinfo = orig
 
 
-class _IPv4Session(req.Session):
-    """每次请求期间强制 IPv4 的 Session（对调用方透明，无需改调用点）。"""
+class _PreferIpv4Session(req.Session):
+    """每次请求期间「IPv4 优先、IPv6 兜底」的 Session（对调用方透明）。"""
 
     def request(self, method, url, **kwargs):  # type: ignore[override]
-        with _force_ipv4():
+        with _prefer_ipv4():
             return super().request(method, url, **kwargs)
 
 
@@ -94,4 +103,4 @@ def _build_session() -> _IPv4Session:
 
 
 # 单例：CMS 全链路（探测 / 分类 / 列表 / 详情）共用，享受 keep-alive 与自动重试。
-cms_session: _IPv4Session = _build_session()
+cms_session: _PreferIpv4Session = _build_session()
