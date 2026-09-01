@@ -86,8 +86,8 @@ class _PreferIpv4Session(req.Session):
             return super().request(method, url, **kwargs)
 
 
-def _build_session() -> _IPv4Session:
-    s = _IPv4Session()
+def _build_session() -> _PreferIpv4Session:
+    s = _PreferIpv4Session()
     s.headers.update(
         {
             "User-Agent": _USER_AGENT,
