@@ -107,7 +107,10 @@ try:
     _user32.SetWindowLongPtrW.restype = ctypes.c_void_p
     _user32.CallWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
     _user32.CallWindowProcW.restype = ctypes.c_longlong
-    _dwmapi.DwmExtendFrameIntoClientArea.argtypes = [ctypes.c_void_p, ctypes.POINTER(_MARGINS)]
+    # 第二项用不透明 c_void_p（调用时再 cast），彻底绕开 pythonnet 下
+    # POINTER(_MARGINS) 形参对非 _MARGINS 指针实例的严格类型校验——
+    # 否则报 "expected LP__MARGINS instance instead of pointer to _MARGINS"。
+    _dwmapi.DwmExtendFrameIntoClientArea.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     _dwmapi.DwmExtendFrameIntoClientArea.restype = ctypes.c_int
 
     _WNDPROC_CB = ctypes.WINFUNCTYPE(ctypes.c_longlong, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
@@ -121,13 +124,12 @@ def _dwm_extend_frame(hwnd):
     if not _DWM_AVAILABLE:
         return
     try:
-        # pythonnet 下 ctypes.byref() 传给 POINTER(MARGINS) 形参会报
-        # "expected LP__MARGINS instance instead of pointer to _MARGINS"，
-        # 必须用真正的 ctypes.pointer() 实例（LP__MARGINS）。
+        # 不透明形参：先 pointer() 再 cast 成 c_void_p，C 侧按 16 字节读取 MARGINS，
+        # 但 ctypes 不再做 LP__MARGINS 结构化类型校验（规避 pythonnet 的上述报错）。
         _m = _MARGINS(-1, -1, -1, -1)
         _dwmapi.DwmExtendFrameIntoClientArea(
             ctypes.c_void_p(int(hwnd)),
-            ctypes.pointer(_m),
+            ctypes.cast(ctypes.pointer(_m), ctypes.c_void_p),
         )
     except Exception:
         pass
