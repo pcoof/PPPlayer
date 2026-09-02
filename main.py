@@ -121,9 +121,13 @@ def _dwm_extend_frame(hwnd):
     if not _DWM_AVAILABLE:
         return
     try:
+        # pythonnet 下 ctypes.byref() 传给 POINTER(MARGINS) 形参会报
+        # "expected LP__MARGINS instance instead of pointer to _MARGINS"，
+        # 必须用真正的 ctypes.pointer() 实例（LP__MARGINS）。
+        _m = _MARGINS(-1, -1, -1, -1)
         _dwmapi.DwmExtendFrameIntoClientArea(
             ctypes.c_void_p(int(hwnd)),
-            ctypes.byref(_MARGINS(-1, -1, -1, -1)),
+            ctypes.pointer(_m),
         )
     except Exception:
         pass
