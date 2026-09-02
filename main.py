@@ -79,89 +79,89 @@ def ui_invoke(window, fn):
     return box.get('v')
 
 
-# ── Windows 原生：消除 frameless 窗口的 DWM 1px 非客户区边框 ──
-# frameless（FormBorderStyle.None）窗口在 Windows 上仍会被 DWM 绘制一条 1px 非客户区边，
-# 在播放窗口全屏（铺满显示器、黑底视频）时格外明显。标准解法是
-# DwmExtendFrameIntoClientArea(负边距) 把该边框「延伸」进客户区使其不可见；但 DWM 边距会在
-# WM_SIZE / WM_ACTIVATE / WM_DPICHANGED（含全屏切换、拖拽缩放、点击激活）后被重置，
-# 故子类化窗口过程，在这些消息后重新应用。仅 Windows 生效，其它平台静默跳过。
+# ── Windows 原生：消除 frameless 窗口四周的 1px 边框 ──
+# frameless（FormBorderStyle.None）窗口在 Windows 上仍会被 DWM 在非客户区画一条 1px 边，
+# 播放窗口全屏（黑底视频铺满）时尤其扎眼；主窗口同理可见。
+# 正确做法是**处理 WM_NCCALCSIZE**：当 wParam 为真时返回 0，告诉 Windows「没有非客户区需要
+# 计算」，DWM 便不再绘制那条 1px 边。该消息在每次尺寸变化（含全屏切换、拖拽缩放、DPI 变化、
+# 激活）都会触发，因此能持久生效——这正是之前那套 DwmExtendFrameIntoClientArea(负边距)
+# （用于亚克力/透明标题栏）做不到的，故已弃用。
+# 同时把窗体与所有子控件（含 WebView2）背景设为黑色并清零 Padding，兜住「WebView2 默认浅色
+# 背景在边缘露出 1px」这一支因。仅 Windows 生效，其它平台静默跳过。
 try:
     import ctypes
     _user32 = ctypes.windll.user32
-    _dwmapi = ctypes.windll.dwmapi
 
     _GWL_WNDPROC = -4
-    _WM_SIZE = 0x0005
-    _WM_ACTIVATE = 0x0006
-    _WM_DPICHANGED = 0x02E0
-
-    class _MARGINS(ctypes.Structure):
-        _fields_ = [
-            ("cxLeftWidth", ctypes.c_int),
-            ("cxRightWidth", ctypes.c_int),
-            ("cyTopHeight", ctypes.c_int),
-            ("cyBottomHeight", ctypes.c_int),
-        ]
+    _WM_NCCALCSIZE = 0x0083
 
     _user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
     _user32.SetWindowLongPtrW.restype = ctypes.c_void_p
     _user32.CallWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
     _user32.CallWindowProcW.restype = ctypes.c_longlong
-    # 第二项用不透明 c_void_p（调用时再 cast），彻底绕开 pythonnet 下
-    # POINTER(_MARGINS) 形参对非 _MARGINS 指针实例的严格类型校验——
-    # 否则报 "expected LP__MARGINS instance instead of pointer to _MARGINS"。
-    _dwmapi.DwmExtendFrameIntoClientArea.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    _dwmapi.DwmExtendFrameIntoClientArea.restype = ctypes.c_int
 
     _WNDPROC_CB = ctypes.WINFUNCTYPE(ctypes.c_longlong, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
-    _DWM_AVAILABLE = True
+    _NCC_AVAILABLE = True
 except Exception:
-    _DWM_AVAILABLE = False
+    _NCC_AVAILABLE = False
     _WNDPROC_CB = None
 
 
-def _dwm_extend_frame(hwnd):
-    if not _DWM_AVAILABLE:
-        return
-    try:
-        # 不透明形参：先 pointer() 再 cast 成 c_void_p，C 侧按 16 字节读取 MARGINS，
-        # 但 ctypes 不再做 LP__MARGINS 结构化类型校验（规避 pythonnet 的上述报错）。
-        _m = _MARGINS(-1, -1, -1, -1)
-        _dwmapi.DwmExtendFrameIntoClientArea(
-            ctypes.c_void_p(int(hwnd)),
-            ctypes.cast(ctypes.pointer(_m), ctypes.c_void_p),
-        )
-    except Exception:
-        pass
-
-
 def install_frameless_border_fix(window, refs):
-    """消除指定 frameless 窗口四周的 DWM 1px 边框（须在 UI 线程调用）。
+    """消除指定 frameless 窗口四周的 1px 边框（须在 UI 线程调用）。
 
-    refs 用于持有 WndProc 回调引用，防止被 GC 回收导致访问已释放过程而崩溃。
+    1) 窗体+子控件背景置黑、清零 Padding，兜住 WebView2 默认浅色背景在边缘露出的 1px；
+    2) 子类化窗口过程，在 WM_NCCALCSIZE 返回 0 移除 DWM 非客户区 1px 边（持久生效）。
+    refs 持有 WndProc 回调引用，防止被 GC 回收导致访问已释放过程而崩溃。
+    任何一步失败都打印出来而非静默吞掉，便于排查。
     """
-    if not _DWM_AVAILABLE:
+    if not _NCC_AVAILABLE:
         return
     native = getattr(window, "native", None)
     if not native or not getattr(native, "IsHandleCreated", False):
         return
+
+    # ── 1) 背景与 Padding：窗体 + 递归所有子控件（含 WebView2）──
     try:
-        from System.Drawing import Color
+        from System.Drawing import Color, Padding
+
+        def _blacken(ctrl):
+            try:
+                ctrl.BackColor = Color.Black
+            except Exception:
+                pass
+            try:
+                for c in ctrl.Controls:
+                    _blacken(c)
+            except Exception:
+                pass
+
         native.BackColor = Color.Black
-    except Exception:
-        pass
+        try:
+            native.Padding = Padding(0)
+        except Exception:
+            pass
+        _blacken(native)
+    except Exception as e:
+        print(f"[border-fix] 设置背景/ Padding 失败（不影响主修复）: {e}")
+
+    # ── 2) 子类化窗口过程：WM_NCCALCSIZE 返回 0 移除 DWM 1px 边 ──
     hwnd = int(native.Handle)
     state = {"prev": 0}
 
     @_WNDPROC_CB
     def _proc(h, msg, wparam, lparam):
-        if msg in (_WM_SIZE, _WM_ACTIVATE, _WM_DPICHANGED):
-            _dwm_extend_frame(h)
+        # wParam 为真表示 Windows 正在计算窗口非客户区尺寸；返回 0 即声明「无客户区」，
+        # DWM 便不再绘制那条 1px 边。其余消息原样链式转发给原过程（不丢任何消息）。
+        if msg == _WM_NCCALCSIZE and wparam:
+            return 0
         return _user32.CallWindowProcW(state["prev"], h, msg, wparam, lparam)
 
-    state["prev"] = _user32.SetWindowLongPtrW(hwnd, _GWL_WNDPROC, _proc)
-    refs.append(_proc)
-    _dwm_extend_frame(hwnd)
+    try:
+        state["prev"] = _user32.SetWindowLongPtrW(hwnd, _GWL_WNDPROC, _proc)
+        refs.append(_proc)
+    except Exception as e:
+        print(f"[border-fix] SetWindowLongPtrW 子类化失败: {e}")
 
 
 def run_flask():
