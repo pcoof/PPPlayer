@@ -78,92 +78,6 @@ def ui_invoke(window, fn):
         return None
     return box.get('v')
 
-
-# ── Windows 原生：消除 frameless 窗口四周的 1px 边框 ──
-# frameless（FormBorderStyle.None）窗口在 Windows 上仍会被 DWM 在非客户区画一条 1px 边，
-# 播放窗口全屏（黑底视频铺满）时尤其扎眼；主窗口同理可见。
-# 正确做法是**处理 WM_NCCALCSIZE**：当 wParam 为真时返回 0，告诉 Windows「没有非客户区需要
-# 计算」，DWM 便不再绘制那条 1px 边。该消息在每次尺寸变化（含全屏切换、拖拽缩放、DPI 变化、
-# 激活）都会触发，因此能持久生效——这正是之前那套 DwmExtendFrameIntoClientArea(负边距)
-# （用于亚克力/透明标题栏）做不到的，故已弃用。
-# 同时把窗体与所有子控件（含 WebView2）背景设为黑色并清零 Padding，兜住「WebView2 默认浅色
-# 背景在边缘露出 1px」这一支因。仅 Windows 生效，其它平台静默跳过。
-try:
-    import ctypes
-    _user32 = ctypes.windll.user32
-
-    _GWL_WNDPROC = -4
-    _WM_NCCALCSIZE = 0x0083
-
-    _user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
-    _user32.SetWindowLongPtrW.restype = ctypes.c_void_p
-    _user32.CallWindowProcW.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
-    _user32.CallWindowProcW.restype = ctypes.c_longlong
-
-    _WNDPROC_CB = ctypes.WINFUNCTYPE(ctypes.c_longlong, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
-    _NCC_AVAILABLE = True
-except Exception:
-    _NCC_AVAILABLE = False
-    _WNDPROC_CB = None
-
-
-def install_frameless_border_fix(window, refs):
-    """消除指定 frameless 窗口四周的 1px 边框（须在 UI 线程调用）。
-
-    1) 窗体+子控件背景置黑、清零 Padding，兜住 WebView2 默认浅色背景在边缘露出的 1px；
-    2) 子类化窗口过程，在 WM_NCCALCSIZE 返回 0 移除 DWM 非客户区 1px 边（持久生效）。
-    refs 持有 WndProc 回调引用，防止被 GC 回收导致访问已释放过程而崩溃。
-    任何一步失败都打印出来而非静默吞掉，便于排查。
-    """
-    if not _NCC_AVAILABLE:
-        return
-    native = getattr(window, "native", None)
-    if not native or not getattr(native, "IsHandleCreated", False):
-        return
-
-    # ── 1) 背景与 Padding：窗体 + 递归所有子控件（含 WebView2）──
-    try:
-        from System.Drawing import Color, Padding
-
-        def _blacken(ctrl):
-            try:
-                ctrl.BackColor = Color.Black
-            except Exception:
-                pass
-            try:
-                for c in ctrl.Controls:
-                    _blacken(c)
-            except Exception:
-                pass
-
-        native.BackColor = Color.Black
-        try:
-            native.Padding = Padding(0)
-        except Exception:
-            pass
-        _blacken(native)
-    except Exception as e:
-        print(f"[border-fix] 设置背景/ Padding 失败（不影响主修复）: {e}")
-
-    # ── 2) 子类化窗口过程：WM_NCCALCSIZE 返回 0 移除 DWM 1px 边 ──
-    hwnd = int(native.Handle)
-    state = {"prev": 0}
-
-    @_WNDPROC_CB
-    def _proc(h, msg, wparam, lparam):
-        # wParam 为真表示 Windows 正在计算窗口非客户区尺寸；返回 0 即声明「无客户区」，
-        # DWM 便不再绘制那条 1px 边。其余消息原样链式转发给原过程（不丢任何消息）。
-        if msg == _WM_NCCALCSIZE and wparam:
-            return 0
-        return _user32.CallWindowProcW(state["prev"], h, msg, wparam, lparam)
-
-    try:
-        state["prev"] = _user32.SetWindowLongPtrW(hwnd, _GWL_WNDPROC, _proc)
-        refs.append(_proc)
-    except Exception as e:
-        print(f"[border-fix] SetWindowLongPtrW 子类化失败: {e}")
-
-
 def run_flask():
     """在独立线程中启动 Flask 服务器"""
     app = create_app()
@@ -190,7 +104,6 @@ class PlayerWindow:
         self.port = port
         self._player_window = None
         self._main_window = main_window
-        self._wnd_proc_refs = []  # 持有 WndProc 子类引用，防止被 GC
         self.bosskey = None       # BossKeyManager（老板键全局热键）
         self.tray = None          # TrayManager（系统托盘）
 
@@ -308,12 +221,6 @@ class PlayerWindow:
         player_api.attach(self._player_window)
         self._player_api = player_api
 
-        # 消除 frameless 播放窗口的 DWM 1px 边框（全屏时最明显）；UI 线程安装，失败不影响功能
-        try:
-            ui_invoke(self._player_window,
-                      lambda: install_frameless_border_fix(self._player_window, self._wnd_proc_refs))
-        except Exception as e:
-            print(f"[PlayerWindow] 边框修复安装失败（不影响功能）: {e}")
 
     def _resize_window_to_aspect(self, window, video_width, video_height):
         """根据视频宽高比调整指定窗口尺寸"""
@@ -1411,9 +1318,6 @@ def main() -> None:
                     ok = ui_invoke(window, player_mgr.tray.create)
                     if not ok:
                         print("[Tray] create returned falsy")
-                    # 消除 frameless 主窗口的 DWM 1px 边框（与播放窗口同源问题）
-                    ui_invoke(window,
-                              lambda: install_frameless_border_fix(window, player_mgr._wnd_proc_refs))
                     return
                 time.sleep(0.1)
             print("[Tray] 窗口句柄尚未就绪，作为备用方案在当前线程创建")
@@ -1421,7 +1325,7 @@ def main() -> None:
         except Exception as e:
             print(f"[Tray] 加载中的初始化失败: {e}")
 
-    webview.start(debug=True, func=_on_loaded,icon='/logo.ico')
+    webview.start(func=_on_loaded,icon='/logo.ico')
 
     sys.exit(0)
 
