@@ -35,7 +35,10 @@ html.dark { --paper: #15130e; --paper-2:#1b1812; --surface: #1d1a14; --surface-2
 .ts-scroll::-webkit-scrollbar-track { background: transparent; }
 .ts-scroll::-webkit-scrollbar-thumb { background: var(--line-strong); border: 3px solid transparent; background-clip: content-box; border-radius: 999px; }
 .ts-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: content-box; }
-.ts-scroll { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+/* 滚动容器：此前只有滚动条样式却没有 overflow，导致它根本不能滚动。
+   min-height:0 必需——作为 flex 子项时默认 min-height:auto 无法收缩到内容高度以下，
+   内容会溢出容器而不是在内部滚动（抽屉内瀑布流的滚动就栽在这两点上）。 */
+.ts-scroll { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; overflow-y: auto; overflow-x: hidden; min-height: 0; }
 
 /* ---------- 顶栏 ---------- */
 .ts-header { flex: 0 0 auto; position: relative; z-index: 30; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter: saturate(1.3) blur(12px); backdrop-filter: saturate(1.3) blur(12px); user-select: none; -webkit-user-select: none; }

@@ -77,6 +77,7 @@ function app() {
         _wallThrottle: false,
         _wallRelayoutTimer: null,
         _animWall: false,      // 本次重排是否允许位移动画（仅图片加载导致的重排需要）
+        _wallRetry: 0,         // 容器宽度未就绪时的重排重试计数（上限 10，防死循环）
         _imgRatios: {},        // 图片真实宽高比缓存：{ 图片URL: height/width }，避免二次进入反复跳动
         _drawerScrollHandler: null,
         _drawerScrollRoot: null,
@@ -650,7 +651,13 @@ function app() {
             if (!wrap) return;
             const gap = 12;
             const containerWidth = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
-            if (containerWidth <= 0) return; // 容器尚未显示时宽度为 0，跳过
+            if (containerWidth <= 0) {
+                // 容器尚未布局完成（如抽屉过渡中）宽度为 0。此时若直接跳过，.ts-wall 高度会
+                // 停留在 0，而卡片是绝对定位不撑开父容器 → 内容溢出却无法滚动。故延迟重试。
+                if (this._wallRetry < 10) { this._wallRetry++; this._scheduleWallRelayout(); }
+                return;
+            }
+            this._wallRetry = 0;
             let colCount = Math.floor(containerWidth / minColWidth);
             if (colCount <= 0) colCount = 1;
             const colItemWidth = (containerWidth / colCount) - gap;
