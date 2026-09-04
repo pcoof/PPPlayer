@@ -71,12 +71,6 @@ function app() {
         _observer: null,
         _urlFetchTimer: null,
         isMaximized: false,  // 窗口最大化状态，由 WindowChrome.onStateChange 同步
-        favPage: 1,
-        histPage: 1,
-        wallChunk: 24,
-        _wallThrottle: false,
-        _wallScrollHandler: null,
-        _wallScrollRoot: null,
 
         async init() {
             const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
@@ -115,8 +109,6 @@ function app() {
             }
             if (window.WindowChrome) bindChromeState();
             else window.addEventListener('load', bindChromeState);
-            // 窗口尺寸变化（含最大化/缩放）时重排收藏/历史瀑布流
-            window.addEventListener('resize', () => this.relayoutWalls());
 
             if (this.sources.length) {
                 const src = this.getActiveSource();
@@ -400,7 +392,6 @@ function app() {
         setListLayout(val) {
             const src = this.getActiveSource();
             if (src) { src.listLayout = val; this.saveSources(); }
-            this.$nextTick(() => this.relayoutWalls());
         },
 
         makeApiUrl(base, params) {
@@ -492,10 +483,7 @@ function app() {
         // 卡片墙滚动到顶部（带平滑动画）。真实滚动容器是内层 .ts-content（overflow-y:auto），
         // 窗口本身不滚动，故不能用 window.scrollTo —— 否则切源/切分类时列表不会回顶。
         scrollWallToTop() {
-            let content = null;
-            if (this.showFav) content = document.getElementById('favWallScroll');
-            else if (this.showHist) content = document.getElementById('histWallScroll');
-            else content = document.querySelector('.ts-content');
+            const content = document.querySelector('.ts-content');
             if (content && content.scrollHeight > content.clientHeight) {
                 content.scrollTo({ top: 0, behavior: 'smooth' });
             } else if (content) {
@@ -567,111 +555,6 @@ function app() {
             this._loadMoreThrottle = true;
             setTimeout(() => { this._loadMoreThrottle = false; }, 250);
             this.page++; await this.loadData(true);
-        },
-
-        // ── 收藏 / 历史 瀑布流页面（JS 瀑布流，参考 doubao.html）──
-        openFav() {
-            if (this.showFav) { this.closeFavWall(); return; } // 再次点击当前图标则关闭
-            this.showFav = true; this.showHist = false; this.showSettings = false;
-            this.favPage = 1;
-            this.$nextTick(() => { this.relayoutWalls(); this.setupWallAutoLoad(); });
-            setTimeout(() => this.relayoutWalls(), 60); // 二次兜底，确保首屏宽度已就绪
-        },
-        openHist() {
-            if (this.showHist) { this.closeHistWall(); return; }
-            this.showHist = true; this.showFav = false; this.showSettings = false;
-            this.histPage = 1;
-            this.$nextTick(() => { this.relayoutWalls(); this.setupWallAutoLoad(); });
-            setTimeout(() => this.relayoutWalls(), 60);
-        },
-        closeFavWall() { this.showFav = false; this.teardownWallAutoLoad(); },
-        closeHistWall() { this.showHist = false; this.teardownWallAutoLoad(); },
-
-        visibleFav() {
-            if (this.cfg.loadMode === 'waterfall') return this.fav.slice(0, this.favPage * this.wallChunk);
-            return this.fav.slice((this.favPage - 1) * this.wallChunk, this.favPage * this.wallChunk);
-        },
-        visibleHis() {
-            if (this.cfg.loadMode === 'waterfall') return this.his.slice(0, this.histPage * this.wallChunk);
-            return this.his.slice((this.histPage - 1) * this.wallChunk, this.histPage * this.wallChunk);
-        },
-        wallPageCountFav() { return Math.max(1, Math.ceil(this.fav.length / this.wallChunk)); },
-        wallPageCountHis() { return Math.max(1, Math.ceil(this.his.length / this.wallChunk)); },
-        wallHasMoreFav() { return this.favPage * this.wallChunk < this.fav.length; },
-        wallHasMoreHis() { return this.histPage * this.wallChunk < this.his.length; },
-
-        favWallMore() {
-            if (this._wallThrottle || !this.wallHasMoreFav()) return;
-            this._wallThrottle = true; setTimeout(() => { this._wallThrottle = false; }, 200);
-            this.favPage++; this.$nextTick(() => this.relayoutWalls());
-        },
-        histWallMore() {
-            if (this._wallThrottle || !this.wallHasMoreHis()) return;
-            this._wallThrottle = true; setTimeout(() => { this._wallThrottle = false; }, 200);
-            this.histPage++; this.$nextTick(() => this.relayoutWalls());
-        },
-        favWallPrev() { if (this.favPage > 1) { this.favPage--; this.scrollWallToTop(); this.$nextTick(() => this.relayoutWalls()); } },
-        favWallNext() { if (this.favPage < this.wallPageCountFav()) { this.favPage++; this.scrollWallToTop(); this.$nextTick(() => this.relayoutWalls()); } },
-        histWallPrev() { if (this.histPage > 1) { this.histPage--; this.scrollWallToTop(); this.$nextTick(() => this.relayoutWalls()); } },
-        histWallNext() { if (this.histPage < this.wallPageCountHis()) { this.histPage++; this.scrollWallToTop(); this.$nextTick(() => this.relayoutWalls()); } },
-
-        // JS 瀑布流：按容器宽度算列数，卡片绝对定位到当前最矮列（海报 竖屏224/横屏280，gap 12）
-        renderWall(wrap, items, layout) {
-            if (!wrap) return;
-            const gap = 12;
-            const minColWidth = layout === 'landscape' ? 280 : 224;
-            const containerWidth = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
-            if (containerWidth <= 0) return; // 页面尚未显示时宽度为 0，跳过
-            let colCount = Math.floor(containerWidth / minColWidth);
-            if (colCount <= 0) colCount = 1;
-            const colItemWidth = (containerWidth / colCount) - gap;
-            const nodes = Array.from(wrap.querySelectorAll('.ts-wf-item'));
-            const colHeights = new Array(colCount).fill(0);
-            nodes.forEach((item) => {
-                item.style.width = colItemWidth + 'px';
-                let minH = colHeights[0], target = 0;
-                for (let i = 1; i < colCount; i++) { if (colHeights[i] < minH) { minH = colHeights[i]; target = i; } }
-                item.style.left = (target * (colItemWidth + gap)) + 'px';
-                item.style.top = colHeights[target] + 'px';
-                colHeights[target] += (item.offsetHeight || 0) + gap;
-            });
-            wrap.style.height = Math.max.apply(null, colHeights) + 'px';
-        },
-        relayoutWalls() {
-            if (this.showFav) this.renderWall(document.getElementById('favWall'), this.visibleFav(), this.currentListLayout());
-            if (this.showHist) this.renderWall(document.getElementById('histWall'), this.visibleHis(), this.currentListLayout());
-        },
-        teardownWallAutoLoad() {
-            if (this._wallScrollHandler && this._wallScrollRoot) {
-                try { this._wallScrollRoot.removeEventListener('scroll', this._wallScrollHandler); } catch (e) {}
-            }
-            this._wallScrollHandler = null; this._wallScrollRoot = null;
-        },
-        setupWallAutoLoad() {
-            this.teardownWallAutoLoad();
-            if (this.cfg.loadMode !== 'waterfall') return; // 上下页模式用翻页控件，不自动加载
-            const root = document.getElementById(this.showFav ? 'favWallScroll' : 'histWallScroll');
-            if (!root) return;
-            let raf = 0;
-            const tryLoad = () => {
-                if (this.loading) return;
-                if (raf) return;
-                raf = requestAnimationFrame(() => {
-                    raf = 0;
-                    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 300) {
-                        if (this.showFav && this.wallHasMoreFav()) this.favWallMore();
-                        else if (this.showHist && this.wallHasMoreHis()) this.histWallMore();
-                    }
-                });
-            };
-            this._wallScrollRoot = root;
-            this._wallScrollHandler = tryLoad;
-            root.addEventListener('scroll', tryLoad, { passive: true });
-        },
-        setLoadMode(mode) {
-            this.cfg.loadMode = mode; this.saveCfg();
-            this.setupAutoLoad(); // 主列表
-            this.$nextTick(() => { this.relayoutWalls(); this.setupWallAutoLoad(); });
         },
 
         doSearch() {
@@ -759,11 +642,10 @@ function app() {
                 if (this.fav.length > max) this.fav = this.fav.slice(0, max);
             }
             this.saveAllDataDebounced();
-            this.$nextTick(() => this.relayoutWalls());
         },
 
-        clearHist() { if (!confirm('确定清空所有播放历史？')) return; this.his = []; this.saveAllDataDebounced(); this.$nextTick(() => this.relayoutWalls()); },
-        clearFav() { if (!confirm('确定清空所有收藏历史？')) return; this.fav = []; this.saveAllDataDebounced(); this.$nextTick(() => this.relayoutWalls()); },
+        clearHist() { if (!confirm('确定清空所有播放历史？')) return; this.his = []; this.saveAllDataDebounced(); },
+        clearFav() { if (!confirm('确定清空所有收藏历史？')) return; this.fav = []; this.saveAllDataDebounced(); },
         formatTime(ts) { return ts ? new Date(ts).toLocaleString() : ''; },
 
         addSource() {

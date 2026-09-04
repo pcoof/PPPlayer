@@ -695,16 +695,3 @@ html.dark[data-theme="pop"] { --paper: #15110a; --paper-2:#1f180d; --surface: #2
 .ts-ctxmenu-item:hover { background: var(--surface-2); }
 .ts-ctxmenu-item.is-disabled { opacity: .45; cursor: not-allowed; }
 .ts-ctxmenu-item.is-disabled:hover { background: transparent; }
-
-/* —— 收藏 / 历史：全屏卡片墙瀑布流页面 —— */
-.ts-page { background: var(--paper); }
-.ts-wall-scroll {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 14px 14px 28px;
-}
-.ts-wall { position: relative; width: 100%; }
-.ts-wf-item { position: absolute; top: 0; left: 0; box-sizing: border-box; }
-.ts-wf-item .ts-card { width: 100%; }
-.ts-page-mode { font-size: 13px; color: var(--ink-2); min-width: 56px; text-align: center; }
-.ts-hist-time { font-size: 11px; color: var(--ink-3); margin-left: auto; }
