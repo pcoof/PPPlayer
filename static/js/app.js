@@ -75,6 +75,7 @@ function app() {
         histPage: 1,
         drawerChunk: 24,
         _wallThrottle: false,
+        _wallRelayoutTimer: null,
         _drawerScrollHandler: null,
         _drawerScrollRoot: null,
 
@@ -660,8 +661,30 @@ function app() {
                 item.style.left = (targetCol * (colItemWidth + gap)) + 'px';
                 item.style.top = colHeights[targetCol] + 'px';
                 colHeights[targetCol] += (item.offsetHeight || 0) + gap;
+                this._watchWallImages(item); // 图片加载完高度会变，需重排避免重叠
             });
             wrap.style.height = Math.max.apply(null, colHeights) + 'px';
+        },
+        // 图片未加载完时卡片高度偏小，加载完成后需重新排布一次（仅监听尚未完成的图片）
+        _watchWallImages(item) {
+            if (!item.querySelectorAll) return;
+            item.querySelectorAll('img').forEach((img) => {
+                if (img.dataset.wfWatched) return; // 已监听过，避免重复绑定
+                img.dataset.wfWatched = '1';
+                if (img.complete && img.naturalWidth > 0) return; // 已加载完，高度已确定
+                const done = () => this._scheduleWallRelayout();
+                img.addEventListener('load', done, { once: true });
+                img.addEventListener('error', done, { once: true });
+            });
+        },
+        // 多张图片陆续加载完成会频繁触发，防抖合并为一次重排
+        _scheduleWallRelayout() {
+            if (this._wallRelayoutTimer) clearTimeout(this._wallRelayoutTimer);
+            this._wallRelayoutTimer = setTimeout(() => {
+                this._wallRelayoutTimer = null;
+                this.relayoutMainWall();
+                this.relayoutDrawers();
+            }, 80);
         },
         // 切回网格布局时清除瀑布流留下的内联定位（内联样式优先级高于 class，不清会残留错位）
         clearWallStyle(wrap) {

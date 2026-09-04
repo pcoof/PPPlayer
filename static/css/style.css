@@ -482,6 +482,8 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .u-pl-4 { padding-left: 1rem }
 .u-max-h-64 { max-height: 16rem }
 .u-max-h-70vh { max-height: 70vh }
+/* 宽高比需全局生效：瀑布流容器 .ts-wall 不是 .ts-grid-*，若限定在网格下，
+   卡片图片区在图片加载完成前高度为 0，JS 量出的高度偏小会导致卡片重叠 */
 .u-aspect-2-3 { aspect-ratio: 2 / 3 }
 .u-aspect-5-3 { aspect-ratio: 5 / 3 }
 .u-object-contain { object-fit: contain }
