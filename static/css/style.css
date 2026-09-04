@@ -482,10 +482,15 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .u-pl-4 { padding-left: 1rem }
 .u-max-h-64 { max-height: 16rem }
 .u-max-h-70vh { max-height: 70vh }
-/* 宽高比需全局生效：瀑布流容器 .ts-wall 不是 .ts-grid-*，若限定在网格下，
-   卡片图片区在图片加载完成前高度为 0，JS 量出的高度偏小会导致卡片重叠 */
-.u-aspect-2-3 { aspect-ratio: 2 / 3 }
-.u-aspect-5-3 { aspect-ratio: 5 / 3 }
+/* 网格模式：统一海报比例，卡片高度一致（规整网格） */
+.ts-grid-poster .u-aspect-2-3, .ts-grid-land .u-aspect-2-3 { aspect-ratio: 2 / 3 }
+.ts-grid-poster .u-aspect-5-3, .ts-grid-land .u-aspect-5-3 { aspect-ratio: 5 / 3 }
+/* 瀑布流模式：刻意不套统一比例——图片区高度由 JS 按每张图的真实宽高比写入内联
+   aspect-ratio（覆盖此处），高度参差不齐才能形成错落；若统一比例就退化成规整网格了。
+   这里的值是"尚未测出真实比例时"的占位比例，用于避免图片未加载时高度为 0 导致重叠。 */
+.ts-wall .ts-card-media { aspect-ratio: 3 / 4; }
+/* 仅图片加载导致的重排才做位移动画，避免首次渲染时卡片从左上角"飞"出来 */
+.ts-wall.is-anim > .ts-wf-item { transition: top .28s var(--ease), left .28s var(--ease); }
 .u-object-contain { object-fit: contain }
 .u-object-cover { object-fit: cover }
 .u-min-w-0 { min-width: 0 }

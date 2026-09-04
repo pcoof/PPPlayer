@@ -76,6 +76,8 @@ function app() {
         drawerChunk: 24,
         _wallThrottle: false,
         _wallRelayoutTimer: null,
+        _animWall: false,      // 本次重排是否允许位移动画（仅图片加载导致的重排需要）
+        _imgRatios: {},        // 图片真实宽高比缓存：{ 图片URL: height/width }，避免二次进入反复跳动
         _drawerScrollHandler: null,
         _drawerScrollRoot: null,
 
@@ -653,46 +655,73 @@ function app() {
             if (colCount <= 0) colCount = 1;
             const colItemWidth = (containerWidth / colCount) - gap;
             const nodes = Array.from(wrap.children).filter(n => n.classList && n.classList.contains('ts-wf-item'));
-            const colHeights = new Array(colCount).fill(0);
+            wrap.classList.toggle('is-anim', !!this._animWall);
+            // 先把宽度和图片比例写完，再一次性读完所有高度，避免"写-读"交替引发多次强制布局
             nodes.forEach((item) => {
                 item.style.width = colItemWidth + 'px';
+                this._watchWallImages(item); // 应用已测出的真实比例，未测出的挂监听等加载
+            });
+            const heights = nodes.map(n => n.offsetHeight || 0);
+            const colHeights = new Array(colCount).fill(0);
+            nodes.forEach((item, i) => {
                 const minHeight = Math.min.apply(null, colHeights);
                 const targetCol = colHeights.indexOf(minHeight);
                 item.style.left = (targetCol * (colItemWidth + gap)) + 'px';
                 item.style.top = colHeights[targetCol] + 'px';
-                colHeights[targetCol] += (item.offsetHeight || 0) + gap;
-                this._watchWallImages(item); // 图片加载完高度会变，需重排避免重叠
+                colHeights[targetCol] += heights[i] + gap;
             });
             wrap.style.height = Math.max.apply(null, colHeights) + 'px';
         },
-        // 图片未加载完时卡片高度偏小，加载完成后需重新排布一次（仅监听尚未完成的图片）
+        // 把图片真实宽高比写到图片容器上；比例已知（命中缓存或图已加载）时返回 true
+        _applyWallRatio(item) {
+            const img = item.querySelector ? item.querySelector('img') : null;
+            if (!img) return false;
+            const media = img.parentElement; // .ts-card-media
+            if (!media) return false;
+            const url = img.currentSrc || img.src || '';
+            let ratio = url ? this._imgRatios[url] : 0;
+            if (!ratio && img.complete && img.naturalWidth > 0) {
+                ratio = img.naturalHeight / img.naturalWidth;
+                if (ratio > 0 && url) this._imgRatios[url] = ratio; // 缓存，二次进入不再跳动
+            }
+            if (ratio > 0) { media.style.aspectRatio = '1 / ' + ratio; return true; }
+            return false; // 未测出，沿用 CSS 占位比例
+        },
+        // 图片未加载时高度未知，需在其 load/error 后用真实比例重排一次（仅监听尚未完成的图片）
         _watchWallImages(item) {
-            if (!item.querySelectorAll) return;
-            item.querySelectorAll('img').forEach((img) => {
-                if (img.dataset.wfWatched) return; // 已监听过，避免重复绑定
-                img.dataset.wfWatched = '1';
-                if (img.complete && img.naturalWidth > 0) return; // 已加载完，高度已确定
-                const done = () => this._scheduleWallRelayout();
-                img.addEventListener('load', done, { once: true });
-                img.addEventListener('error', done, { once: true });
-            });
+            if (!item.querySelector) return;
+            if (this._applyWallRatio(item)) return; // 比例已知，本次即可排准
+            const img = item.querySelector('img');
+            if (!img || img.dataset.wfWatched) return; // 已监听过，避免重复绑定
+            img.dataset.wfWatched = '1';
+            const done = () => {
+                if (this._applyWallRatio(item)) this._scheduleWallRelayout();
+            };
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
         },
         // 多张图片陆续加载完成会频繁触发，防抖合并为一次重排
         _scheduleWallRelayout() {
             if (this._wallRelayoutTimer) clearTimeout(this._wallRelayoutTimer);
             this._wallRelayoutTimer = setTimeout(() => {
                 this._wallRelayoutTimer = null;
+                this._animWall = true; // 图片撑开导致的位移做平滑动画，避免生硬跳动
                 this.relayoutMainWall();
                 this.relayoutDrawers();
+                this._animWall = false;
             }, 80);
         },
         // 切回网格布局时清除瀑布流留下的内联定位（内联样式优先级高于 class，不清会残留错位）
         clearWallStyle(wrap) {
             if (!wrap) return;
             wrap.style.height = '';
+            wrap.classList.remove('is-anim');
             Array.from(wrap.children).forEach((n) => {
                 if (n.classList && n.classList.contains('ts-wf-item')) {
                     n.style.width = ''; n.style.left = ''; n.style.top = '';
+                    // 清掉瀑布流写入的动态宽高比，否则切回网格仍是参差高度
+                    const media = n.querySelector && n.querySelector('.ts-card-media');
+                    if (media) media.style.aspectRatio = '';
                 }
             });
         },
