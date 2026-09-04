@@ -217,7 +217,7 @@
   </div>
   <div id="favWallScroll" class="u-grow u-px-3 u-py-3 ts-scroll">
     <div class="ts-wall" id="favWall">
-      <template x-for="(item, index) in visibleFav()" :key="item.vod_id + '_' + index">
+      <template x-for="(item, index) in fav" :key="item.vod_id + '_' + index">
         <div class="ts-wf-item">
           <div @click="openPlayer(item);showFav=false" class="ts-card group">
             <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
@@ -241,14 +241,6 @@
         </div>
       </template>
     </div>
-    <div x-show="favHasMore() && cfg.loadMode==='waterfall'" x-cloak class="loadMore u-flex u-justify-center u-items-center u-mt-6 u-pb-6">
-      <button @click="favMore()" class="ts-loadmore-btn">加载更多</button>
-    </div>
-    <div x-show="favPageCount()>1 && cfg.loadMode==='page'" x-cloak class="u-flex u-justify-center u-items-center u-gap-2 u-mt-6 u-pb-6">
-      <button @click="favPrev()" class="ts-ghost-btn" :class="favPage<=1?'u-opacity-50 u-cursor-not-allowed':''">上一页</button>
-      <span class="ts-page-mode" x-text="favPage + ' / ' + favPageCount()"></span>
-      <button @click="favNext()" class="ts-ghost-btn" :class="favPage>=favPageCount()?'u-opacity-50 u-cursor-not-allowed':''">下一页</button>
-    </div>
     <div x-show="!fav.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有收藏</div>
   </div>
 </div>
@@ -264,7 +256,7 @@
   </div>
   <div id="histWallScroll" class="u-grow u-px-3 u-py-3 ts-scroll">
     <div class="ts-wall" id="histWall">
-      <template x-for="(item, index) in visibleHis()" :key="item.vod_id + '_' + index">
+      <template x-for="(item, index) in his" :key="item.vod_id + '_' + index">
         <div class="ts-wf-item">
           <div @click="openPlayer(item);showHist=false" class="ts-card group">
             <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
@@ -284,14 +276,6 @@
           </div>
         </div>
       </template>
-    </div>
-    <div x-show="histHasMore() && cfg.loadMode==='waterfall'" x-cloak class="loadMore u-flex u-justify-center u-items-center u-mt-6 u-pb-6">
-      <button @click="histMore()" class="ts-loadmore-btn">加载更多</button>
-    </div>
-    <div x-show="histPageCount()>1 && cfg.loadMode==='page'" x-cloak class="u-flex u-justify-center u-items-center u-gap-2 u-mt-6 u-pb-6">
-      <button @click="histPrev()" class="ts-ghost-btn" :class="histPage<=1?'u-opacity-50 u-cursor-not-allowed':''">上一页</button>
-      <span class="ts-page-mode" x-text="histPage + ' / ' + histPageCount()"></span>
-      <button @click="histNext()" class="ts-ghost-btn" :class="histPage>=histPageCount()?'u-opacity-50 u-cursor-not-allowed':''">下一页</button>
     </div>
     <div x-show="!his.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有历史</div>
   </div>
