@@ -71,9 +71,15 @@ function app() {
         _observer: null,
         _urlFetchTimer: null,
         isMaximized: false,  // 窗口最大化状态，由 WindowChrome.onStateChange 同步
+        favPage: 1,
+        histPage: 1,
+        drawerChunk: 24,
+        _wallThrottle: false,
+        _drawerScrollHandler: null,
+        _drawerScrollRoot: null,
 
         async init() {
-            const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
+            const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", cardWall: false, hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
             let saved = {};
             try { saved = await API.loadAllConfig(); } catch (e) { console.warn('load config error:', e); }
 
@@ -109,6 +115,8 @@ function app() {
             }
             if (window.WindowChrome) bindChromeState();
             else window.addEventListener('load', bindChromeState);
+            // 窗口尺寸变化（含最大化 / 缩放）时重排瀑布流：主内容 + 收藏 / 历史抽屉
+            window.addEventListener('resize', () => { this.relayoutMainWall(); this.relayoutDrawers(); });
 
             if (this.sources.length) {
                 const src = this.getActiveSource();
@@ -392,6 +400,30 @@ function app() {
         setListLayout(val) {
             const src = this.getActiveSource();
             if (src) { src.listLayout = val; this.saveSources(); }
+            this.$nextTick(() => this.relayoutMainWall());
+        },
+
+        // ── 主内容 · 卡片墙瀑布流（开关 cfg.cardWall）──
+        // 关闭时沿用原网格布局（ts-grid-poster / ts-grid-land）；开启时走 JS 瀑布流。
+        // 卡片宽度沿用海报设定：竖屏 224px、横屏 280px（视觉参考 doubao.html）。
+        mainWallClass() {
+            if (this.cfg.cardWall) return 'ts-wall';
+            return this.currentListLayout() === 'poster' ? 'ts-grid-poster' : 'ts-grid-land';
+        },
+        toggleCardWall(on) {
+            this.cfg.cardWall = !!on;
+            this.saveCfg();
+            this.$nextTick(() => {
+                if (!this.cfg.cardWall) this.clearWallStyle(document.getElementById('mainWall'));
+                this.relayoutMainWall();
+            });
+            setTimeout(() => this.relayoutMainWall(), 60); // 二次兜底，等首屏宽度就绪
+        },
+        relayoutMainWall() {
+            if (!this.cfg.cardWall) return; // 网格模式交给 CSS Grid，无需 JS 定位
+            const wrap = document.getElementById('mainWall');
+            if (!wrap) return;
+            this.renderWall(wrap, this.currentListLayout() === 'landscape' ? 280 : 224);
         },
 
         makeApiUrl(base, params) {
@@ -545,6 +577,7 @@ function app() {
                 this.loading = false;
                 this.$nextTick(() => {
                     this.setupAutoLoad();
+                    this.relayoutMainWall(); // 瀑布流模式下追加 / 刷新数据后重新排布
                 });
             }
         },
@@ -555,6 +588,132 @@ function app() {
             this._loadMoreThrottle = true;
             setTimeout(() => { this._loadMoreThrottle = false; }, 250);
             this.page++; await this.loadData(true);
+        },
+
+        // ── 收藏 / 历史 抽屉内的瀑布流（两列）──
+        // 抽屉固定 420px 宽，minColWidth 取 160 以稳定得到两列（列数算法同 doubao.html）。
+        openFav() {
+            if (this.showFav) { this.showFav = false; this.teardownDrawerAutoLoad(); return; }
+            this.showFav = true; this.showHist = false; this.showSettings = false;
+            this.favPage = 1;
+            this.$nextTick(() => { this.relayoutDrawers(); this.setupDrawerAutoLoad(); });
+            setTimeout(() => this.relayoutDrawers(), 60); // 二次兜底，等首屏宽度就绪
+        },
+        openHist() {
+            if (this.showHist) { this.showHist = false; this.teardownDrawerAutoLoad(); return; }
+            this.showHist = true; this.showFav = false; this.showSettings = false;
+            this.histPage = 1;
+            this.$nextTick(() => { this.relayoutDrawers(); this.setupDrawerAutoLoad(); });
+            setTimeout(() => this.relayoutDrawers(), 60);
+        },
+
+        // 自动加载（无限滚动）模式：追加式切片；上下页翻页模式：按页切片
+        visibleFav() {
+            if (this.cfg.loadMode === 'waterfall') return this.fav.slice(0, this.favPage * this.drawerChunk);
+            return this.fav.slice((this.favPage - 1) * this.drawerChunk, this.favPage * this.drawerChunk);
+        },
+        visibleHis() {
+            if (this.cfg.loadMode === 'waterfall') return this.his.slice(0, this.histPage * this.drawerChunk);
+            return this.his.slice((this.histPage - 1) * this.drawerChunk, this.histPage * this.drawerChunk);
+        },
+        favPageCount() { return Math.max(1, Math.ceil(this.fav.length / this.drawerChunk)); },
+        histPageCount() { return Math.max(1, Math.ceil(this.his.length / this.drawerChunk)); },
+        favHasMore() { return this.favPage * this.drawerChunk < this.fav.length; },
+        histHasMore() { return this.histPage * this.drawerChunk < this.his.length; },
+
+        favMore() {
+            if (this._wallThrottle || !this.favHasMore()) return;
+            this._wallThrottle = true; setTimeout(() => { this._wallThrottle = false; }, 200);
+            this.favPage++; this.$nextTick(() => this.relayoutDrawers());
+        },
+        histMore() {
+            if (this._wallThrottle || !this.histHasMore()) return;
+            this._wallThrottle = true; setTimeout(() => { this._wallThrottle = false; }, 200);
+            this.histPage++; this.$nextTick(() => this.relayoutDrawers());
+        },
+        favPrev() { if (this.favPage > 1) { this.favPage--; this.scrollDrawerToTop('favWallScroll'); this.$nextTick(() => this.relayoutDrawers()); } },
+        favNext() { if (this.favPage < this.favPageCount()) { this.favPage++; this.scrollDrawerToTop('favWallScroll'); this.$nextTick(() => this.relayoutDrawers()); } },
+        histPrev() { if (this.histPage > 1) { this.histPage--; this.scrollDrawerToTop('histWallScroll'); this.$nextTick(() => this.relayoutDrawers()); } },
+        histNext() { if (this.histPage < this.histPageCount()) { this.histPage++; this.scrollDrawerToTop('histWallScroll'); this.$nextTick(() => this.relayoutDrawers()); } },
+        scrollDrawerToTop(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (el.scrollHeight > el.clientHeight) el.scrollTo({ top: 0, behavior: 'smooth' });
+            else el.scrollTop = 0;
+        },
+
+        // JS 瀑布流：按容器宽度算列数，卡片绝对定位到当前最矮列（参考 doubao.html 实现）
+        renderWall(wrap, minColWidth) {
+            if (!wrap) return;
+            const gap = 12;
+            const containerWidth = wrap.clientWidth || (wrap.parentElement ? wrap.parentElement.clientWidth : 0);
+            if (containerWidth <= 0) return; // 容器尚未显示时宽度为 0，跳过
+            let colCount = Math.floor(containerWidth / minColWidth);
+            if (colCount <= 0) colCount = 1;
+            const colItemWidth = (containerWidth / colCount) - gap;
+            const nodes = Array.from(wrap.children).filter(n => n.classList && n.classList.contains('ts-wf-item'));
+            const colHeights = new Array(colCount).fill(0);
+            nodes.forEach((item) => {
+                item.style.width = colItemWidth + 'px';
+                const minHeight = Math.min.apply(null, colHeights);
+                const targetCol = colHeights.indexOf(minHeight);
+                item.style.left = (targetCol * (colItemWidth + gap)) + 'px';
+                item.style.top = colHeights[targetCol] + 'px';
+                colHeights[targetCol] += (item.offsetHeight || 0) + gap;
+            });
+            wrap.style.height = Math.max.apply(null, colHeights) + 'px';
+        },
+        // 切回网格布局时清除瀑布流留下的内联定位（内联样式优先级高于 class，不清会残留错位）
+        clearWallStyle(wrap) {
+            if (!wrap) return;
+            wrap.style.height = '';
+            Array.from(wrap.children).forEach((n) => {
+                if (n.classList && n.classList.contains('ts-wf-item')) {
+                    n.style.width = ''; n.style.left = ''; n.style.top = '';
+                }
+            });
+        },
+        relayoutDrawers() {
+            if (this.showFav) this.renderWall(document.getElementById('favWall'), 160);
+            if (this.showHist) this.renderWall(document.getElementById('histWall'), 160);
+        },
+        teardownDrawerAutoLoad() {
+            if (this._drawerScrollHandler && this._drawerScrollRoot) {
+                try { this._drawerScrollRoot.removeEventListener('scroll', this._drawerScrollHandler); } catch (e) {}
+            }
+            this._drawerScrollHandler = null; this._drawerScrollRoot = null;
+        },
+        setupDrawerAutoLoad() {
+            this.teardownDrawerAutoLoad();
+            if (this.cfg.loadMode !== 'waterfall') return; // 上下页模式用翻页控件，不自动加载
+            const root = document.getElementById(this.showFav ? 'favWallScroll' : 'histWallScroll');
+            if (!root) return;
+            let raf = 0;
+            const tryLoad = () => {
+                if (raf) return;
+                raf = requestAnimationFrame(() => {
+                    raf = 0;
+                    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 300) {
+                        if (this.showFav && this.favHasMore()) this.favMore();
+                        else if (this.showHist && this.histHasMore()) this.histMore();
+                    }
+                });
+            };
+            this._drawerScrollRoot = root;
+            this._drawerScrollHandler = tryLoad;
+            root.addEventListener('scroll', tryLoad, { passive: true });
+        },
+        // 分页模式开关：上下页翻页 <-> 自动加载（无限滚动）；主列表与收藏 / 历史抽屉同步生效并持久化
+        setLoadMode(mode) {
+            this.cfg.loadMode = mode;
+            this.saveCfg();
+            this.setupAutoLoad(); // 主列表
+            this.$nextTick(() => {
+                if (this.showFav) this.favPage = 1;
+                if (this.showHist) this.histPage = 1;
+                this.relayoutDrawers();
+                this.setupDrawerAutoLoad();
+            });
         },
 
         doSearch() {
@@ -642,10 +801,11 @@ function app() {
                 if (this.fav.length > max) this.fav = this.fav.slice(0, max);
             }
             this.saveAllDataDebounced();
+            this.$nextTick(() => this.relayoutDrawers()); // 收藏项增减后重排抽屉瀑布流
         },
 
-        clearHist() { if (!confirm('确定清空所有播放历史？')) return; this.his = []; this.saveAllDataDebounced(); },
-        clearFav() { if (!confirm('确定清空所有收藏历史？')) return; this.fav = []; this.saveAllDataDebounced(); },
+        clearHist() { if (!confirm('确定清空所有播放历史？')) return; this.his = []; this.histPage = 1; this.saveAllDataDebounced(); this.$nextTick(() => this.relayoutDrawers()); },
+        clearFav() { if (!confirm('确定清空所有收藏历史？')) return; this.fav = []; this.favPage = 1; this.saveAllDataDebounced(); this.$nextTick(() => this.relayoutDrawers()); },
         formatTime(ts) { return ts ? new Date(ts).toLocaleString() : ''; },
 
         addSource() {

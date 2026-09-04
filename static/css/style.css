@@ -695,3 +695,13 @@ html.dark[data-theme="pop"] { --paper: #15110a; --paper-2:#1f180d; --surface: #2
 .ts-ctxmenu-item:hover { background: var(--surface-2); }
 .ts-ctxmenu-item.is-disabled { opacity: .45; cursor: not-allowed; }
 .ts-ctxmenu-item.is-disabled:hover { background: transparent; }
+
+/* —— 卡片墙瀑布流（主内容 + 收藏 / 历史抽屉），布局算法参考 doubao.html —— */
+.ts-wall { position: relative; width: 100%; }
+.ts-wall > .ts-wf-item { position: absolute; top: 0; left: 0; box-sizing: border-box; }
+.ts-wf-item > .ts-card { width: 100%; }
+/* 网格模式下 wf-item 退化为普通 grid 子项；用 !important 压掉瀑布流遗留的内联定位，避免切回后错位 */
+.ts-grid-poster > .ts-wf-item,
+.ts-grid-land > .ts-wf-item { position: static; width: auto !important; left: auto !important; top: auto !important; }
+.ts-page-mode { font-size: 13px; color: var(--ink-2); min-width: 52px; text-align: center; }
+.ts-hist-time { font-size: 11px; color: var(--ink-3); }

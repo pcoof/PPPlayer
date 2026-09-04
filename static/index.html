@@ -63,11 +63,11 @@
           <template x-if="cfg.theme==='dark'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></template>
           <template x-if="cfg.theme==='auto'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></template>
         </button>
-        <button @click="showFav=!showFav;showHist=false;showSettings=false" class="ts-icon-btn u-relative" :class="showFav?'is-active':''" title="收藏">
+        <button @click="openFav()" class="ts-icon-btn u-relative" :class="showFav?'is-active':''" title="收藏">
           <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
           <span x-show="fav.length" x-cloak x-text="fav.length" class="ts-badge"></span>
         </button>
-        <button @click="showHist=!showHist;showFav=false;showSettings=false" class="ts-icon-btn u-relative" :class="showHist?'is-active':''" title="历史">
+        <button @click="openHist()" class="ts-icon-btn u-relative" :class="showHist?'is-active':''" title="历史">
           <svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           <span x-show="his.length" x-cloak x-text="his.length" class="ts-badge"></span>
         </button>
@@ -152,26 +152,28 @@
     <div class="loading-14" role="status" aria-label="加载中"></div>
   </div>
 
-  <!-- 卡片墙 -->
-  <div x-show="videos.length" x-cloak :class="currentListLayout()==='poster' ? 'ts-grid-poster' : 'ts-grid-land'">
-    <template x-for="item in videos" :key="item.vod_id + '_' + Math.random()">
-      <div @click="openPlayer(item)" class="ts-card group">
-        <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
-          <img :src="item.vod_pic || placeholderImg" loading="lazy" @error="$event.target.src=placeholderImg" alt="">
-          <div class="ts-card-gradient"></div>
-          <span x-show="cardTagText('tl', item)" x-cloak x-text="cardTagText('tl', item)" class="ts-tag u-top-2 u-left-2"></span>
-          <span x-show="cardTagText('tr', item)" x-cloak x-text="cardTagText('tr', item)" class="ts-tag u-top-2 u-right-12"></span>
-          <span x-show="cardTagText('bl', item)" x-cloak x-text="cardTagText('bl', item)" class="ts-tag u-bottom-2 u-left-2"></span>
-          <span x-show="cardTagText('br', item)" x-cloak x-text="cardTagText('br', item)" class="ts-tag u-bottom-2 u-right-2"></span>
-          <button @click.stop="toggleFav(item)" class="ts-fav-btn" :class="isFav(item.vod_id)?'is-fav':''" title="收藏">
-            <svg :class="isFav(item.vod_id)?'u-fill-current':''" class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
-          </button>
-        </div>
-        <div class="ts-card-body">
-          <h3 class="ts-card-title" x-text="item.vod_name || '未命名'"></h3>
-          <div class="ts-card-meta u-flex u-items-center u-gap-2">
-            <span x-show="cardTagText('sub1', item)" x-cloak x-text="cardTagText('sub1', item)"></span>
-            <span x-show="cardTagText('sub2', item)" x-cloak x-text="cardTagText('sub2', item)"></span>
+  <!-- 卡片墙（主内容）：网格模式用 ts-grid-*；开启瀑布流后切到 ts-wall，由 JS 定位 -->
+  <div x-show="videos.length" x-cloak id="mainWall" :class="mainWallClass()">
+    <template x-for="(item, index) in videos" :key="item.vod_id + '_' + index">
+      <div class="ts-wf-item">
+        <div @click="openPlayer(item)" class="ts-card group">
+          <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
+            <img :src="item.vod_pic || placeholderImg" loading="lazy" @error="$event.target.src=placeholderImg" alt="">
+            <div class="ts-card-gradient"></div>
+            <span x-show="cardTagText('tl', item)" x-cloak x-text="cardTagText('tl', item)" class="ts-tag u-top-2 u-left-2"></span>
+            <span x-show="cardTagText('tr', item)" x-cloak x-text="cardTagText('tr', item)" class="ts-tag u-top-2 u-right-12"></span>
+            <span x-show="cardTagText('bl', item)" x-cloak x-text="cardTagText('bl', item)" class="ts-tag u-bottom-2 u-left-2"></span>
+            <span x-show="cardTagText('br', item)" x-cloak x-text="cardTagText('br', item)" class="ts-tag u-bottom-2 u-right-2"></span>
+            <button @click.stop="toggleFav(item)" class="ts-fav-btn" :class="isFav(item.vod_id)?'is-fav':''" title="收藏">
+              <svg :class="isFav(item.vod_id)?'u-fill-current':''" class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+            </button>
+          </div>
+          <div class="ts-card-body">
+            <h3 class="ts-card-title" x-text="item.vod_name || '未命名'"></h3>
+            <div class="ts-card-meta u-flex u-items-center u-gap-2">
+              <span x-show="cardTagText('sub1', item)" x-cloak x-text="cardTagText('sub1', item)"></span>
+              <span x-show="cardTagText('sub2', item)" x-cloak x-text="cardTagText('sub2', item)"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -204,7 +206,7 @@
   </div>
 </main>
 
-<!-- 收藏抽屉 -->
+<!-- 收藏抽屉（内部改为瀑布流两列） -->
 <div x-show="showFav" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-6" x-transition:enter-end="opacity-100 translate-x-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click.away="showFav=false" class="u-fixed u-inset-y u-right-0 u-z40 u-w-420 u-max-w-full ts-drawer ts-scroll">
   <div class="ts-drawer-head">
     <h2 class="ts-drawer-title">我的收藏</h2>
@@ -213,24 +215,45 @@
       <button @click="showFav=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
     </div>
   </div>
-  <div class="ts-hist u-grow u-px-3 u-py-3 ts-scroll">
-    <template x-for="item in fav" :key="item.vod_id">
-      <div @click="openPlayer(item);showFav=false" class="ts-list-item u-mb-3">
-        <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
-        <div class="u-grow u-min-w-0">
-          <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
-          <p class="ts-list-sub" x-text="item.type_name || ''"></p>
+  <div id="favWallScroll" class="u-grow u-px-3 u-py-3 ts-scroll">
+    <div class="ts-wall" id="favWall">
+      <template x-for="(item, index) in visibleFav()" :key="item.vod_id + '_' + index">
+        <div class="ts-wf-item">
+          <div @click="openPlayer(item);showFav=false" class="ts-card group">
+            <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
+              <img :src="item.vod_pic || placeholderImg" loading="lazy" @error="$event.target.src=placeholderImg" alt="">
+              <div class="ts-card-gradient"></div>
+              <span x-show="cardTagText('tl', item)" x-cloak x-text="cardTagText('tl', item)" class="ts-tag u-top-2 u-left-2"></span>
+              <span x-show="cardTagText('tr', item)" x-cloak x-text="cardTagText('tr', item)" class="ts-tag u-top-2 u-right-12"></span>
+              <span x-show="cardTagText('bl', item)" x-cloak x-text="cardTagText('bl', item)" class="ts-tag u-bottom-2 u-left-2"></span>
+              <span x-show="cardTagText('br', item)" x-cloak x-text="cardTagText('br', item)" class="ts-tag u-bottom-2 u-right-2"></span>
+              <button @click.stop="toggleFav(item)" class="ts-fav-btn" :class="isFav(item.vod_id)?'is-fav':''" title="收藏">
+                <svg :class="isFav(item.vod_id)?'u-fill-current':''" class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
+              </button>
+            </div>
+            <div class="ts-card-body">
+              <h3 class="ts-card-title" x-text="item.vod_name || '未命名'"></h3>
+              <div class="ts-card-meta u-flex u-items-center u-gap-2">
+                <span x-show="item.type_name" x-cloak x-text="item.type_name"></span>
+              </div>
+            </div>
+          </div>
         </div>
-        <button @click.stop="toggleFav(item)" class="ts-fav-btn u-p-2 u-text-danger u-hover-danger-soft u-rounded-lg u-transition-colors">
-          <svg class="u-w-4 u-h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
-        </button>
-      </div>
-    </template>
+      </template>
+    </div>
+    <div x-show="favHasMore() && cfg.loadMode==='waterfall'" x-cloak class="loadMore u-flex u-justify-center u-items-center u-mt-6 u-pb-6">
+      <button @click="favMore()" class="ts-loadmore-btn">加载更多</button>
+    </div>
+    <div x-show="favPageCount()>1 && cfg.loadMode==='page'" x-cloak class="u-flex u-justify-center u-items-center u-gap-2 u-mt-6 u-pb-6">
+      <button @click="favPrev()" class="ts-ghost-btn" :class="favPage<=1?'u-opacity-50 u-cursor-not-allowed':''">上一页</button>
+      <span class="ts-page-mode" x-text="favPage + ' / ' + favPageCount()"></span>
+      <button @click="favNext()" class="ts-ghost-btn" :class="favPage>=favPageCount()?'u-opacity-50 u-cursor-not-allowed':''">下一页</button>
+    </div>
     <div x-show="!fav.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有收藏</div>
   </div>
 </div>
 
-<!-- 历史抽屉 -->
+<!-- 历史抽屉（内部改为瀑布流两列） -->
 <div x-show="showHist" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-x-6" x-transition:enter-end="opacity-100 translate-x-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" @click.away="showHist=false" class="u-fixed u-inset-y u-right-0 u-z40 u-w-420 u-max-w-full ts-drawer ts-scroll">
   <div class="ts-drawer-head">
     <h2 class="ts-drawer-title">播放历史</h2>
@@ -239,16 +262,37 @@
       <button @click="showHist=false" class="ts-icon-btn"><svg class="u-w-5 u-h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
     </div>
   </div>
-  <div class="ts-hist u-grow u-px-3 u-py-3 ts-scroll">
-    <template x-for="item in his" :key="item.vod_id + '_' + item.last_watch_time">
-      <div @click="openPlayer(item);showHist=false" class="ts-list-item u-mb-3">
-        <img :src="item.vod_pic || placeholderImg" class="ts-list-thumb" @error="$event.target.src=placeholderImg">
-        <div class="u-grow u-min-w-0">
-          <h4 class="ts-list-title u-truncate" x-text="item.vod_name"></h4>
-          <p class="ts-list-sub" x-text="formatTime(item.last_watch_time)"></p>
+  <div id="histWallScroll" class="u-grow u-px-3 u-py-3 ts-scroll">
+    <div class="ts-wall" id="histWall">
+      <template x-for="(item, index) in visibleHis()" :key="item.vod_id + '_' + index">
+        <div class="ts-wf-item">
+          <div @click="openPlayer(item);showHist=false" class="ts-card group">
+            <div class="ts-card-media" :class="currentListLayout()==='poster' ? 'u-aspect-2-3' : 'u-aspect-5-3'">
+              <img :src="item.vod_pic || placeholderImg" loading="lazy" @error="$event.target.src=placeholderImg" alt="">
+              <div class="ts-card-gradient"></div>
+              <span x-show="cardTagText('tl', item)" x-cloak x-text="cardTagText('tl', item)" class="ts-tag u-top-2 u-left-2"></span>
+              <span x-show="cardTagText('tr', item)" x-cloak x-text="cardTagText('tr', item)" class="ts-tag u-top-2 u-right-12"></span>
+              <span x-show="cardTagText('bl', item)" x-cloak x-text="cardTagText('bl', item)" class="ts-tag u-bottom-2 u-left-2"></span>
+              <span x-show="cardTagText('br', item)" x-cloak x-text="cardTagText('br', item)" class="ts-tag u-bottom-2 u-right-2"></span>
+            </div>
+            <div class="ts-card-body">
+              <h3 class="ts-card-title" x-text="item.vod_name || '未命名'"></h3>
+              <div class="ts-card-meta u-flex u-items-center u-gap-2">
+                <span class="ts-hist-time" x-show="item.last_watch_time" x-cloak x-text="formatTime(item.last_watch_time)"></span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-    </template>
+      </template>
+    </div>
+    <div x-show="histHasMore() && cfg.loadMode==='waterfall'" x-cloak class="loadMore u-flex u-justify-center u-items-center u-mt-6 u-pb-6">
+      <button @click="histMore()" class="ts-loadmore-btn">加载更多</button>
+    </div>
+    <div x-show="histPageCount()>1 && cfg.loadMode==='page'" x-cloak class="u-flex u-justify-center u-items-center u-gap-2 u-mt-6 u-pb-6">
+      <button @click="histPrev()" class="ts-ghost-btn" :class="histPage<=1?'u-opacity-50 u-cursor-not-allowed':''">上一页</button>
+      <span class="ts-page-mode" x-text="histPage + ' / ' + histPageCount()"></span>
+      <button @click="histNext()" class="ts-ghost-btn" :class="histPage>=histPageCount()?'u-opacity-50 u-cursor-not-allowed':''">下一页</button>
+    </div>
     <div x-show="!his.length" x-cloak class="u-text-center u-py-16 u-text-sm u-text-ink-3">还没有历史</div>
   </div>
 </div>
@@ -270,11 +314,14 @@
       <!-- 基础 -->
       <div x-show="settingsTab==='basic'" x-cloak>
         <div class="u-pt-5">
-          <label class="ts-label u-block u-mb-2">加载模式</label>
-          <div class="ts-seg">
-            <button @click="cfg.loadMode='page';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='page'?'is-active':''">上下页</button>
-            <button @click="cfg.loadMode='waterfall';saveCfg();setupAutoLoad()" :class="cfg.loadMode==='waterfall'?'is-active':''">自动加载</button>
-          </div>
+          <label class="ts-label u-block u-mb-2">分页模式</label>
+          <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" :checked="cfg.loadMode==='waterfall'" @change="setLoadMode($event.target.checked ? 'waterfall' : 'page')"> 自动加载（无限滚动） </label>
+          <p class="ts-hint u-mt-2">关闭时为「上下页翻页」模式，手动切换页码；开启后滚动到底部自动加载更多。主列表与收藏 / 历史抽屉同步生效并持久化。</p>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">主内容瀑布流</label>
+          <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" :checked="cfg.cardWall" @change="toggleCardWall($event.target.checked)"> 卡片墙瀑布流模式 </label>
+          <p class="ts-hint u-mt-2">把主内容区从网格改为卡片墙瀑布流排列（参考 doubao.html），保留海报宽度设定：竖屏 224px、横屏 280px。配合上面的「自动加载（无限滚动）」即为无限滚动瀑布流。</p>
         </div>
         <div class="u-pt-5">
           <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.smartAdRemove" @change="saveCfg"> 智能去广告 </label>
