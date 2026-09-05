@@ -1156,7 +1156,7 @@ wheels = [
 
 [[package]]
 name = "tsplayer-pywebview"
-version = "20260822.1"
+version = "20260830.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1177,7 +1177,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "lxml", specifier = ">=5.0" },
     { name = "m3u8", specifier = ">=4.0" },
-    { name = "pywebview", specifier = ">=5.0" },
+    { name = "pywebview", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
 ]
 

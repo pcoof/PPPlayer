@@ -1,1074 +1,1344 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>TSPlayer</title>
 <!-- 环境标记：尽早打上 is-desktop / is-web，浏览器打开时隐藏仅桌面端可用的窗口按钮（保留全屏按钮） -->
-<script>document.documentElement.classList.add((window.chrome && window.chrome.webview) ? 'is-desktop' : 'is-web');</script>
+<script>
+document.documentElement.classList.add( window.chrome && window.chrome.webview ? "is-desktop" : "is-web", );
+</script>
 <!-- XGPlayer（本地 vendor） -->
-<link rel="stylesheet" href="/static/css/style.css">
-<link rel="stylesheet" href="/static/vendor/xgplayer/index.min.css">
+<link rel="stylesheet" href="/static/css/style.css" />
+<link rel="stylesheet" href="/static/vendor/xgplayer/index.min.css" />
 <script src="/static/vendor/xgplayer/index.min.js"></script>
 <script src="/static/vendor/xgplayer/xgplayer-hls.min.js"></script>
 <!-- Swiper（本地 vendor） -->
-<link rel="stylesheet" href="/static/vendor/swiper/swiper-bundle.min.css"/>
-<script src="/static/vendor/swiper/swiper-bundle.min.js"></script><style>
-:root {
-  --bg: #100e0a;
-  --surface: rgba(255,255,255,0.07);
-  --surface-hover: rgba(255,255,255,0.13);
-  --text: #efe7d7;
-  --text-dim: #b3a892;
-  --text-muted: #7e7560;
-  --accent: #d4a85a;
-  --accent-strong: #e2bb73;
-  --accent-dim: rgba(212,168,90,0.16);
-  --line: rgba(255,255,255,0.09);
-  --font: "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  --serif: "Noto Serif SC", "Songti SC", "SimSun", Georgia, serif;
-}
+<link rel="stylesheet" href="/static/vendor/swiper/swiper-bundle.min.css" />
+<script src="/static/vendor/swiper/swiper-bundle.min.js"></script>
 
-/* ===== TSPlayer 播放页 · 暖金极简 ===== */
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body { font-family: var(--font); background: var(--bg); }
-
-</style>
 </head>
 <body>
-
-<!-- 垂直 Swiper -->
-<div class="pp-stage">
-    <div id="swiperWrap" class="swiper verticalSwiper">
-        <div class="swiper-wrapper" id="swiperWrapper"></div>
+    <!-- 垂直 Swiper -->
+    <div class="pp-stage">
+        <div id="swiperWrap" class="swiper verticalSwiper">
+            <div class="swiper-wrapper" id="swiperWrapper"></div>
+        </div>
     </div>
-</div>
-
-<!-- 左上角返回 + 集数 + 窗口控制 -->
-<div class="pp-topbar" id="ppTopbar">
-    <div class="pp-topbar-left">
-        <button onclick="goBack()" class="pp-back" title="返回">←</button>
-        <span id="topEpLabel" class="pp-ep-label"></span>
+    <!-- 左上角返回 + 集数 + 窗口控制 -->
+    <div class="pp-topbar" id="ppTopbar">
+        <div class="pp-topbar-left">
+            <button onclick="goBack()" class="pp-back" title="返回">←</button>
+            <span id="topEpLabel" class="pp-ep-label"></span>
+        </div>
+        <div class="pp-win-controls" onmousedown="event.stopPropagation()">
+            <button class="pp-win-btn" onclick="winFullscreenP()" title="全屏 / 退出全屏" aria-label="全屏">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke-linecap="round" />
+                </svg>
+            </button>
+            <!-- pp-win-desktop：仅桌面端（pywebview）有意义的窗口操作，浏览器打开时由 CSS(html.is-web) 隐藏 -->
+            <button class="pp-win-btn pp-win-desktop" onclick="winMinP()" title="最小化" aria-label="最小化">
+                <svg width="13" height="13" viewBox="0 0 13 13">
+                    <rect x="2" y="6.2" width="9" height="1.5" rx="0.75" fill="currentColor" />
+                </svg>
+            </button>
+            <button class="pp-win-btn pp-win-desktop" id="winMaxBtn" onclick="winMaxP()" title="最大化 / 还原"
+                aria-label="最大化">
+                <svg id="winMaxIcon" width="13" height="13" viewBox="0 0 13 13">
+                    <rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor"
+                        stroke-width="1.5" />
+                </svg>
+            </button>
+            <button class="pp-win-btn pp-win-close pp-win-desktop" onclick="winCloseP()" title="关闭" aria-label="关闭">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M3 3l7 7M10 3l-7 7" stroke-linecap="round" />
+                </svg>
+            </button>
+        </div>
     </div>
-    <div class="pp-win-controls" onmousedown="event.stopPropagation()">
-        <button class="pp-win-btn" onclick="winFullscreenP()" title="全屏 / 退出全屏" aria-label="全屏">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke-linecap="round"/></svg>
-        </button>
-        <!-- pp-win-desktop：仅桌面端（pywebview）有意义的窗口操作，浏览器打开时由 CSS(html.is-web) 隐藏 -->
-        <button class="pp-win-btn pp-win-desktop" onclick="winMinP()" title="最小化" aria-label="最小化">
-            <svg width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="6.2" width="9" height="1.5" rx="0.75" fill="currentColor"/></svg>
-        </button>
-        <button class="pp-win-btn pp-win-desktop" id="winMaxBtn" onclick="winMaxP()" title="最大化 / 还原" aria-label="最大化">
-            <svg id="winMaxIcon" width="13" height="13" viewBox="0 0 13 13"><rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-        </button>
-        <button class="pp-win-btn pp-win-close pp-win-desktop" onclick="winCloseP()" title="关闭" aria-label="关闭">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3l7 7M10 3l-7 7" stroke-linecap="round"/></svg>
-        </button>
-    </div>
-</div>
-
-<!-- 右侧滑出面板 -->
-<div class="tiktok-right-panel-2">
-    <div class="pp-panel-bg">
-        <img id="panelPoster" class="pp-panel-bg-img" src="" alt="">
-    </div>
-    <div class="pp-panel-inner ts-scroll">
-        <button class="btn-close-right-panel-2 pp-close" title="关闭">×</button>
-        <div class="pp-panel-body">
-            <h3 id="panelTitle" class="pp-title"></h3>
-            <!-- Tab 导航 -->
-            <div class="pp-tab-nav">
-                <button class="pp-tab-btn is-active" data-tab="detail" onclick="switchPanelTab('detail')">详情</button>
-                <button class="pp-tab-btn" data-tab="setting" onclick="switchPanelTab('setting')">设置</button>
-                <button class="pp-tab-btn" data-tab="episodes" onclick="switchPanelTab('episodes')">选集</button>
-            </div>
-            <!-- Tab: 详情 -->
-            <div class="pp-tab-panel is-active" data-tab="detail">
-                <div id="panelTags" class="pp-tags"></div>
-                <p id="panelDesc" class="pp-desc"></p>
-                <div id="panelActor" class="pp-actors"></div>
-                <!-- 线路切换（放在详情Tab中） -->
-
-            </div>
-            <!-- Tab: 设置 -->
-            <div class="pp-tab-panel" data-tab="setting">
-                <div class="pp-setting-body" id="ppSettingBody">
-                    <div class="pp-setting-row">
-                        <div>
-                            <div class="pp-setting-label">翻页显示</div>
-                            <div class="pp-setting-hint">视频右侧显示上下集切换按钮</div>
+    <!-- 右侧滑出面板 -->
+    <div class="tiktok-right-panel-2">
+        <div class="pp-panel-bg">
+            <img id="panelPoster" class="pp-panel-bg-img" src="" alt="" />
+        </div>
+        <div class="pp-panel-inner ts-scroll">
+            <button class="btn-close-right-panel-2 pp-close" title="关闭">×</button>
+            <div class="pp-panel-body">
+                <h3 id="panelTitle" class="pp-title"></h3>
+                <!-- Tab 导航 -->
+                <div class="pp-tab-nav">
+                    <button class="pp-tab-btn is-active" data-tab="detail" onclick="switchPanelTab('detail')"> 详情 </button>
+                    <button class="pp-tab-btn" data-tab="setting" onclick="switchPanelTab('setting')"> 设置 </button>
+                    <button class="pp-tab-btn" data-tab="episodes" onclick="switchPanelTab('episodes')"> 选集 </button>
+                </div>
+                <!-- Tab: 详情 -->
+                <div class="pp-tab-panel is-active" data-tab="detail">
+                    <div id="panelTags" class="pp-tags"></div>
+                    <p id="panelDesc" class="pp-desc"></p>
+                    <div id="panelActor" class="pp-actors"></div>
+                    <!-- 线路切换（放在详情Tab中） -->
+                </div>
+                <!-- Tab: 设置 -->
+                <div class="pp-tab-panel" data-tab="setting">
+                    <div class="pp-setting-body" id="ppSettingBody">
+                        <div class="pp-setting-row">
+                            <div>
+                                <div class="pp-setting-label">翻页显示</div>
+                                <div class="pp-setting-hint">视频右侧显示上下集切换按钮</div>
+                            </div>
+                            <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
                         </div>
-                        <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
-                    </div>
-                    <div class="pp-setting-group">
-                        <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
-                            <span>进度跳过（片头）</span>
-                            <input type="checkbox" id="ppSkipIntro" onchange="onSkipToggle('intro')" class="ts-checkbox">
-                        </label>
-                        <div class="pp-sub-line" id="introSub">
-                            <input type="number" min="0" id="ppIntroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()">
-                            <span class="u-text-xs u-text-ink-3">秒</span>
-                            <button class="ts-ghost-btn u-text-sm" onclick="getPlayerTime()">获取当前</button>
+                        <div class="pp-setting-group">
+                            <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
+                                <span>进度跳过（片头）</span>
+                                <input type="checkbox" id="ppSkipIntro" onchange="onSkipToggle('intro')" class="ts-checkbox" />
+                            </label>
+                            <div class="pp-sub-line" id="introSub">
+                                <input type="number" min="0" id="ppIntroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()" />
+                                <span class="u-text-xs u-text-ink-3">秒</span>
+                                <button class="ts-ghost-btn u-text-sm" onclick="getPlayerTime()"> 获取当前 </button>
+                            </div>
                         </div>
-                    </div>
-                    <div class="pp-setting-group">
-                        <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
-                            <span>进度跳过（片尾）</span>
-                            <input type="checkbox" id="ppSkipOutro" onchange="onSkipToggle('outro')" class="ts-checkbox">
-                        </label>
-                        <div class="pp-sub-line" id="outroSub">
-                            <input type="number" min="0" id="ppOutroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()">
-                            <span class="u-text-xs u-text-ink-3">秒（倒数）</span>
-                            <button class="ts-ghost-btn u-text-sm" onclick="getRemainingTime()">获取当前</button>
+                        <div class="pp-setting-group">
+                            <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
+                                <span>进度跳过（片尾）</span>
+                                <input type="checkbox" id="ppSkipOutro" onchange="onSkipToggle('outro')" class="ts-checkbox" />
+                            </label>
+                            <div class="pp-sub-line" id="outroSub">
+                                <input type="number" min="0" id="ppOutroTime" class="ts-field pp-sub-input u-px-2 u-py-1" onchange="onSkipChange()" />
+                                <span class="u-text-xs u-text-ink-3">秒（倒数）</span>
+                                <button class="ts-ghost-btn u-text-sm" onclick="getRemainingTime()"> 获取当前 </button>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <!-- Tab: 选集 -->
-            <div class="pp-tab-panel" data-tab="episodes">
-                <div id="panelSourceWrap" class="pp-source-section" style="display:none">
-                    <h4 class="pp-section-title">线路</h4>
-                    <div id="panelSources" class="pp-sources"></div>
-                </div>
-                <h4 class="pp-section-title">选集 <span id="totalEp" class="pp-total"></span></h4>
-                <div id="tabWrap" class="pp-tabs"></div>
-                <div class="pp-ep-scroll ts-scroll">
-                    <div id="epGrid" class="pp-ep-grid"></div>
+                <!-- Tab: 选集 -->
+                <div class="pp-tab-panel" data-tab="episodes">
+                    <div id="panelSourceWrap" class="pp-source-section" style="display: none">
+                        <h4 class="pp-section-title">线路</h4>
+                        <div id="panelSources" class="pp-sources"></div>
+                    </div>
+                    <h4 class="pp-section-title"> 选集 <span id="totalEp" class="pp-total"></span> </h4>
+                    <div id="tabWrap" class="pp-tabs"></div>
+                    <div class="pp-ep-scroll ts-scroll"> <div id="epGrid" class="pp-ep-grid"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
-<script>
-document.addEventListener('wheel', function(e) {
-    var target = e.target;
-    var el = target;
-    while (el && el !== document.body) {
-        if (el.classList && (
-            el.classList.contains('xgplayer-controls') ||
-            el.classList.contains('xgplayer-progress') ||
-            el.classList.contains('xgplayer-volume') ||
-            el.classList.contains('xgplayer-slider') ||
-            el.classList.contains('xgplayer-playbackrate') ||
-            el.classList.contains('xgplayer-definition') ||
-            el.closest('.xgplayer-controls')
-        )) {
-            e.stopPropagation();
-            return;
-        }
-        el = el.parentElement;
-    }
-}, true);
-
-// ==================== M3U8 智能去广告 ====================
-// 统一走后端同源代理，彻底规避 CDN 无 CORS 头导致的跨域失败：
-//  - 播放列表（含嵌套变体）-> /api/hls?url= （后端拉取+过滤+302 到 .m3u8 结尾地址，播放器据此识别为 HLS）
-//  - 直链视频/切片/密钥/字幕 -> /api/media?url= （后端按字节转发，支持 Range 拖动）
-// 不再由浏览器直连 CDN，因此也不会再出现 CORS 报错与「无法加载响应数据」。
-function isDirectVideo(url) {
-    return /\.(mp4|webm|mov|m4v|ogg|m4a)(\?|#|$)/i.test(url);
-}
-function fetchFilteredM3u8(url) {
-    if (!url) return url;
-    const enc = encodeURIComponent(url);
-    if (isDirectVideo(url)) return '/api/media?url=' + enc;
-    return '/api/hls?url=' + enc;
-}
-
-// ==================== 状态变量 ====================
-const INIT_LOAD = 7;
-let playState = {};           // 从 API/localStorage 获取的完整状态
-let episodeList = [];         // 当前线路的分集列表 [{url, name, globalIndex}]
-let playerMap = new Map();    // player-box DOM → XGPlayer 实例
-let activePlayer = null;
-let verticalSwiper = null;
-let clearScreenState = false;
-let currentActiveIndex = 0;   // 当前激活集索引，供 canplay 内判定是否调整窗口比例
-
-// 元数据（面板用）
-let metaTitle = '';
-let metaPoster = '';
-let metaTags = [];
-let metaDesc = '';
-let metaActors = [];
-let metaPlayGroups = [];
-let metaPlaySrc = 0;
-
-// ==================== 数据加载 ====================
-function loadState() {
-    return fetch('/api/popout_state')
-        .then(r => r.json())
-        .then(state => {
-            console.log('[DEBUG] API popout_state:', state);
-            if (state && state.playGroups) return state;
-            console.warn('[DEBUG] API returned no playGroups, trying localStorage');
-            const raw = localStorage.getItem('cms_popout_state');
-            if (!raw) throw new Error('缺少播放数据');
-            return JSON.parse(raw);
-        })
-        .catch(err => {
-            console.warn('[DEBUG] API failed:', err.message, 'trying localStorage');
-            const raw = localStorage.getItem('cms_popout_state');
-            if (!raw) throw new Error('缺少播放数据');
-            return JSON.parse(raw);
-        });
-}
-
-function buildEpisodeList() {
-    const src = playState.playGroups[playState.playSrc];
-    if (!src || !src.ep) return [];
-    return src.ep.map((ep, i) => ({
-        url: ep.u,
-        name: ep.n,
-        globalIndex: i
-    }));
-}
-
-// 从主窗口配置同步主题（深色模式 + 风格主题）
-function syncThemeFromConfig() {
-    fetch('/api/config/load')
-        .then(r => r.json())
-        .then(data => {
-            var cfg = data && data.cms_cfg ? data.cms_cfg : {};
-            var theme = cfg.theme || 'dark';
-            var styleTheme = cfg.styleTheme || 'default';
-            var dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme:dark)').matches);
-            document.documentElement.classList.toggle('dark', dark);
-            document.documentElement.setAttribute('data-theme', styleTheme);
-        })
-        .catch(() => {
-            // 失败时默认深色
-            document.documentElement.classList.add('dark');
-        });
-}
-
-function setupMeta() {
-    const item = playState.currentItem;
-    if (!item) return;
-    metaTitle = item.vod_name || playState.playerTitle || '';
-    metaPoster = item.vod_pic || '';
-    metaTags = [item.type_name, item.vod_year, item.vod_area].filter(Boolean);
-    metaDesc = (item.vod_content || '').replace(/&nbsp;/g, ' ');
-    metaActors = (item.vod_actor || '').split(/[,，]/).filter(Boolean);
-    metaPlayGroups = playState.playGroups || [];
-    metaPlaySrc = playState.playSrc || 0;
-    document.title = metaTitle || 'TSPlayer';
-}
-
-// ==================== 创建 Slide ====================
-function createSlide(ep, epIndex) {
-    const atFirst = epIndex === 0;
-    const atLast = epIndex === episodeList.length - 1;
-    const prevCls = 'trigger-btn prev-ep-btn' + (atFirst ? ' is-disabled' : '');
-    const nextCls = 'trigger-btn next-ep-btn' + (atLast ? ' is-disabled' : '');
-    const prevDisabled = atFirst ? ' disabled' : '';
-    const nextDisabled = atLast ? ' disabled' : '';
-    const pagDisp = (typeof ppSettings !== 'undefined' && ppSettings.pagination) ? '' : 'none';
-    return '' +
-'<div class="swiper-slide u-relative u-overflow-hidden">'+
-'  <div class="xgplayer-blur-bg ui-fade">'+
-'    <img class="xgplayer-blur-img" src="' + metaPoster + '" alt="">'+
-'  </div>'+
-'  <div class="player-box ui-wrap u-flex" data-ep-index="' + epIndex + '">'+
-'    <div id="xg-' + epIndex + '" class="xg-container" style="width:100%;height:100%"></div>'+
-'    <!-- PC 右侧上下切换 -->'+
-'    <div class="sider-trigger ui-fade" style="display:' + pagDisp + '">'+
-'      <button class="'+ prevCls +'"' + prevDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"><g opacity="1"> <path d="M7.26904 16.3162C6.7251 15.7723 6.7251 14.8904 7.26904 14.3465L12.325 9.29053C12.8689 8.74658 13.7508 8.74658 14.2948 9.29053L14.3061 9.30196L19.3506 14.3465C19.8946 14.8905 19.8946 15.7724 19.3506 16.3163C18.8067 16.8603 17.9248 16.8603 17.3808 16.3163L13.3098 12.2453L9.23884 16.3162C8.69489 16.8602 7.81299 16.8602 7.26904 16.3162Z" fill="currentColor"></path> </g> </svg></button>'+
-'      <button class="'+ nextCls +'"' + nextDisabled + '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"> <g opacity="1"> <path d="M7.26904 9.29059C6.7251 9.83453 6.7251 10.7164 7.26904 11.2604L12.325 16.3163C12.8689 16.8603 13.7508 16.8603 14.2948 16.3163L14.3061 16.3049L19.3506 11.2603C19.8946 10.7164 19.8946 9.83447 19.3506 9.29053C18.8067 8.74658 17.9248 8.74658 17.3808 9.29053L13.3098 13.3616L9.23884 9.29059C8.69489 8.74664 7.81299 8.74665 7.26904 9.29059Z" fill="currentColor"></path> </g> </svg></button>'+
-'    </div>'+
-'    <!-- 左下角信息卡 -->'+
-'    <div class="video-info-bottom u-z20 u-flex u-col u-gap-1 ui-fade" style="pointer-events:auto">'+
-'  <span class="video-info-bottom-content-text u-text-2xl u-cursor-pointer u-line-clamp-1 u-leading-loose">' + metaTitle + '</span>'+
-'  <div class="u-flex u-row u-wrap u-gap-1">'+
-    metaActors.slice(0,3).map(function(name){return '<div class="u-rounded-xl u-py-1 u-px-3 u-cursor-pointer" style="background:rgba(255,255,255,0.15)"><span style="font-size:14px">'+name+'</span></div>'}).join('')+
-'  </div>'+
-'  <div class="info-desc-fold u-mt-1 u-text-sm" style="color:#ccc" onclick="this.classList.toggle(\'expanded\')" title="点击展开/收起简介">'+
-    metaDesc +
-'  </div>'+
-'  <div class="u-flex u-items-center u-gap-2 u-mt-2">'+
-'    <span class="content idx_name u-text-sm" style="color:#ddd">'+ep.name+'</span>'+
-'    <span class="u-text-xs" style="color:var(--accent)">#'+(metaTags[0]||'')+'</span>'+
-'  </div>'+
-'  <div><div class="u-inline-flex u-max-w-full u-w-auto u-row u-items-center u-gap-2 u-rounded-md u-p-3 u-mt-2 u-cursor-pointer open-panel-btn" style="background:rgba(255,255,255,0.08)">'+
-'    <svg class="u-flex-none" width="16" height="16" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path d="M8 0a1.92 1.92 0 0 0-.765.16L.707 3.205l-.016.008a1.212 1.212 0 0 0 0 2.163l.018.01 6.514 3.018.012.004a1.919 1.919 0 0 0 1.53 0l6.528-3.047.016-.007a1.213 1.213 0 0 0 0-2.164l-.018-.01L8.777.165 8.765.159A1.92 1.92 0 0 0 8 0zm7.921 7.88c.198.43.01.94-.42 1.138l-6.703 3.089-.003.002a1.956 1.956 0 0 1-1.624 0l-.003-.002-6.671-3.09a.857.857 0 0 1 .72-1.555l6.668 3.087a.241.241 0 0 0 .198 0l6.702-3.088a.856.856 0 0 1 1.136.42zm-.42 4.853a.857.857 0 0 0-.716-1.556l-6.702 3.086a.247.247 0 0 1-.198.001l-6.668-3.087a.858.858 0 0 0-.72 1.556l6.67 3.089.004.001a1.954 1.954 0 0 0 1.624 0h.003l6.704-3.089z" fill="#FFF"></path></g></svg>'+
-'    <span class="u-whitespace-nowrap u-text-sm">合集(共'+episodeList.length+'集)</span>'+
-'  </div></div>'+
-'</div>'+
-'<div class="floating-actions ui-fade">'+
-'  <button title="收藏" onclick="event.stopPropagation();toggleFav()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>'+
-'  <button class="pp-gear-btn" title="设置" onclick="event.stopPropagation();openSettingsPanel()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>'+
-'</div>';
-'  </div>'+
-'</div>';
-}
-
-// ==================== 进度条拖拽保护（Swiper 冲突修复） ====================
-// 给 XGPlayer 控件区打上 Swiper 的 noSwiping 标记：否则左键拖动进度条会被 Swiper 当作竖向滑动手势抢占，
-// 导致进度条无法拖动——右键不被 Swiper 识别（仅响应主键），因此右键拖动正常。
-// 标记后，控件区内的左键拖动不再触发 Swiper，交由 XGPlayer 处理进度/音量拖拽；视频区仍可正常竖向滑动切集。
-function markNoSwiping(wrapEl) {
-    var xg = wrapEl.querySelector('.xgplayer');
-    if (!xg) return false;
-    var targets = xg.querySelectorAll(
-        '.xgplayer-controls, .xgplayer-progress, .xgplayer-progress-played, ' +
-        '.xgplayer-volume, .xgplayer-slider, .xgplayer-playbackrate, .xgplayer-definition'
-    );
-    targets.forEach(function (el) { el.classList.add('swiper-no-swiping'); });
-    return targets.length > 0;
-}
-
-// ==================== 播放器初始化 ====================
-async function initPlayer(wrapEl, shouldPlay) {
-    const epIndex = Number(wrapEl.dataset.epIndex);
-    const ep = episodeList[epIndex];
-    if (!ep) {
-        console.error('[DEBUG] No episode data for index', epIndex);
-        return null;
-    }
-    const container = wrapEl.querySelector('.xg-container');
-    const containerId = 'xg-' + epIndex;
-    console.log('[DEBUG] initPlayer idx=' + epIndex, 'url=' + ep.url.substring(0,80), 'container size=' + container.offsetWidth + 'x' + container.offsetHeight);
-
-    // 智能去广告：先把 m3u8 过滤后再交给 XGPlayer（此前是直连，广告照播）
-    let playUrl = ep.url;
-    if (/\.m3u8/i.test(ep.url)) {
-        try {
-            playUrl = await fetchFilteredM3u8(ep.url);
-            console.log('[DEBUG] filtered m3u8 url=' + String(playUrl).substring(0, 90));
-        } catch (e) {
-            console.warn('[DEBUG] m3u8 过滤失败，直连原始地址:', e);
-            playUrl = ep.url;
-        }
-    }
-
-    try {
-        const plugins = window.HlsPlayer ? [window.HlsPlayer] : [];
-        const player = new window.Player({
-            id: containerId,
-            url: playUrl,
-            autoplay: !!shouldPlay,
-            volume: 0.6,
-            download: false,            // 关闭 XGPlayer 自带下载按钮
-            // 禁用 XGPlayer 自带 fullscreen 插件：WebView2 不支持 DOM requestFullscreen，
-            // 且插件会把 dblclick 绑定到原生全屏（失效），故改为我们自己在视频区监听 dblclick
-            // 调 pywebview 窗口原生 toggle_fullscreen()（真正显示器全屏），避免重复触发/失效。
-            ignores: ['fullscreen'],
-            fluid: false, //流式布局
-            memoryPlay: true,//记忆播放
-            // fit: 'contain',
-            playsinline: true,
-            fitVideoSize: 'auto',
-            cssFullscreen: true, //样式全屏
-            Fullscreen: true, //全屏
-            // height: window.innerHeight,
-            // width: window.innerWidth,
-            controls: true,
-            plugins: plugins,
-            // 加大 HLS 缓冲前瞻：默认 maxBufferLength≈30s，CDN 经本服务代理后
-            // 若每片尚有握手/调度开销，缓冲太浅会「播一段等一段」。提高到 90s 前瞻、
-            // 120s 上限，并保留 30s 后向缓冲，让代理切片在播放间隙提前预取到位。
-            // enableWorker 把切片解析移到 Worker 线程，避免主线程卡顿；
-            // 重试次数上调，偶发单片失败自动恢复而非中断。
-            hls: {
-                maxBufferLength: 90,
-                maxMaxBufferLength: 120,
-                maxBufferSize: 120 * 1000 * 1000,
-                backBufferLength: 30,
-                enableWorker: true,
-                lowLatencyMode: false,
-                fragLoadingMaxRetry: 5,
-                manifestLoadingMaxRetry: 4,
-                levelLoadingMaxRetry: 4,
-                fragLoadingRetryDelay: 500,
-                manifestLoadingRetryDelay: 500,
-                levelLoadingRetryDelay: 500
+    <script>
+        document.addEventListener(
+            "wheel",
+            function (e) {
+                var target = e.target;
+                var el = target;
+                while (el && el !== document.body) {
+                    if (
+                        el.classList &&
+                        (el.classList.contains("xgplayer-controls") ||
+                            el.classList.contains("xgplayer-progress") ||
+                            el.classList.contains("xgplayer-volume") ||
+                            el.classList.contains("xgplayer-slider") ||
+                            el.classList.contains("xgplayer-playbackrate") ||
+                            el.classList.contains("xgplayer-definition") ||
+                            el.closest(".xgplayer-controls"))
+                    ) {
+                        e.stopPropagation();
+                        return;
+                    }
+                    el = el.parentElement;
+                }
             },
-            controlConfig: {
-                clearScreen: true,
-                playbackRate: [0.5,0.75,1,1.5,2],
-                autoPlayNext: true //播放下一集
-            }
-        });
-        playerMap.set(wrapEl, player);
-        player.__box = wrapEl;
-        // 异步初始化完成时，若该 slide 仍是当前激活集则同步 activePlayer：
-        // 消除「切到未预渲染的集 → 同步遍历拿不到新播放器 → activePlayer 残留上一集/置空」的竞态
-        // （面板「跳过片头片尾」等依赖 activePlayer 的功能因此也保持正确）。
-        if (Number(wrapEl.dataset.epIndex) === currentActiveIndex) {
-            activePlayer = player;
+            true,
+        );
+
+        // ==================== M3U8 智能去广告 ====================
+        // 统一走后端同源代理，彻底规避 CDN 无 CORS 头导致的跨域失败：
+        //  - 播放列表（含嵌套变体）-> /api/hls?url= （后端拉取+过滤+302 到 .m3u8 结尾地址，播放器据此识别为 HLS）
+        //  - 直链视频/切片/密钥/字幕 -> /api/media?url= （后端按字节转发，支持 Range 拖动）
+        // 不再由浏览器直连 CDN，因此也不会再出现 CORS 报错与「无法加载响应数据」。
+        function isDirectVideo(url) {
+            return /\.(mp4|webm|mov|m4v|ogg|m4a)(\?|#|$)/i.test(url);
         }
-        setupSkip(player, wrapEl);
-        console.log('[DEBUG] XGPlayer created for idx=' + epIndex, 'plugins:', plugins.length);
-
-        player.on('error', function(e) {
-            console.error('[DEBUG] XGPlayer error:', e);
-            // 自动切换下一条线路
-            var nextSrc = playState.playSrc + 1;
-            if (playState.playGroups && nextSrc < playState.playGroups.length) {
-                console.log('[DEBUG] Auto-switching to source', nextSrc);
-                rebuildAll(nextSrc);
-            }
-        });
-
-        player.on('canplay', function() {
-            if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return; // 仅当前集才按视频比例调整窗口
-            if (wrapEl._aspectApplied) return; // 每集只按视频比例调整一次窗口，避免拖动进度条 re-buffer 时反复 resize
-            var videoEl = container.querySelector('video');
-            if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
-                console.log('[DEBUG] Video size:', videoEl.videoWidth, 'x', videoEl.videoHeight);
-                if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
-                    window.pywebview.api.resize_to_aspect(videoEl.videoWidth, videoEl.videoHeight);
-                    wrapEl._aspectApplied = true;
-                }
-            }
-        });
-
-        // 清屏
-        player.on('clearScreen', function(flag) {
-            clearScreenState = flag;
-            var allUi = wrapEl.querySelectorAll('.ui-fade');
-            allUi.forEach(function(el) {
-                el.style.opacity = flag ? '0' : '1';
-                el.style.pointerEvents = flag ? 'none' : 'auto';
-            });
-            var topLabel = document.getElementById('topEpLabel');
-            if (topLabel) {
-                topLabel.style.opacity = flag ? '0' : '1';
-                topLabel.style.pointerEvents = flag ? 'none' : 'auto';
-            }
-        });
-
-        // 合集按钮 → 打开右侧面板并显示「选集」Tab
-        var openBtn = wrapEl.querySelector('.open-panel-btn');
-        if (openBtn) {
-            openBtn.onclick = function() { renderSidePanel(); togglePanel(true); switchPanelTab('episodes'); };
+        function fetchFilteredM3u8(url) {
+            if (!url) return url;
+            const enc = encodeURIComponent(url);
+            if (isDirectVideo(url)) return "/api/media?url=" + enc;
+            return "/api/hls?url=" + enc;
         }
 
-        // 右侧上下切换按钮
-        var prevBtn = wrapEl.querySelector('.prev-ep-btn');
-        var nextBtn = wrapEl.querySelector('.next-ep-btn');
-        if (prevBtn) prevBtn.onclick = function() { if (epIndex > 0) verticalSwiper.slideTo(epIndex - 1); };
-        if (nextBtn) nextBtn.onclick = function() { if (epIndex < episodeList.length - 1) verticalSwiper.slideTo(epIndex + 1); };
+        // ==================== 状态变量 ====================
+        const INIT_LOAD = 7;
+        let playState = {}; // 从 API/localStorage 获取的完整状态
+        let episodeList = []; // 当前线路的分集列表 [{url, name, globalIndex}]
+        let playerMap = new Map(); // player-box DOM → XGPlayer 实例
+        let activePlayer = null;
+        let verticalSwiper = null;
+        let clearScreenState = false;
+        let currentActiveIndex = 0; // 当前激活集索引，供 canplay 内判定是否调整窗口比例
 
-        // 播放结束自动下一集（受「连播」开关控制）
-        player.on('ended', function() {
-            if (autoNextEnabled && epIndex < episodeList.length - 1) verticalSwiper.slideTo(epIndex + 1);
-        });
+        // 元数据（面板用）
+        let metaTitle = "";
+        let metaPoster = "";
+        let metaTags = [];
+        let metaDesc = "";
+        let metaActors = [];
+        let metaPlayGroups = [];
+        let metaPlaySrc = 0;
 
-        // 双击视频区域 → 原生显示器全屏（WebView2 不支持 DOM 全屏，走 pywebview 窗口原生全屏）。
-        // 控件区（进度条/音量等）双击不触发，避免与控件交互冲突。
-        // 使用捕获阶段(true)：XGPlayer 内部可能在冒泡阶段 stopPropagation，
-        // 导致双击只触发 clearScreen（隐藏控件）而不触发全屏。捕获阶段先于冒泡，确保全屏优先。
-        wrapEl.addEventListener('dblclick', function (e) {
-            if (e.target.closest('.xgplayer-controls')) return;
-            e.stopPropagation();
-            winFullscreenP();
-        }, true);
-
-        // 进度条/音量等控件区禁止 Swiper 接管拖拽（见 markNoSwiping 说明）
-        if (!markNoSwiping(wrapEl)) {
-            setTimeout(function () { markNoSwiping(wrapEl); }, 300);
-        }
-
-        // 倍速同步
-        if (playState.playSpeed && playState.playSpeed !== '1') {
-            try { player.playbackRate = parseFloat(playState.playSpeed); } catch(e) {}
-        }
-
-        return player;
-    } catch(e) {
-        console.error('[DEBUG] XGPlayer init failed:', e);
-        return null;
-    }
-}
-
-// ==================== 右侧面板 ====================
-function renderSidePanel() {
-    document.getElementById('panelPoster').src = metaPoster;
-    document.getElementById('panelTitle').innerText = metaTitle;
-
-    var tagBox = document.getElementById('panelTags');
-    tagBox.innerHTML = metaTags.map(function(t) {
-        return '<span class="u-px-2 u-py-1 u-rounded u-text-sm">#'+t+'</span>';
-    }).join('');
-
-    document.getElementById('panelDesc').innerText = metaDesc;
-
-    var actorBox = document.getElementById('panelActor');
-    actorBox.innerHTML = metaActors.map(function(name) {
-        return '<div class="u-px-3 u-py-2 u-rounded-xl u-text-base"><span>'+name+'</span></div>';
-    }).join('');
-
-    // 线路切换
-    var srcWrap = document.getElementById('panelSourceWrap');
-    var srcBox = document.getElementById('panelSources');
-    if (metaPlayGroups.length > 1) {
-        srcWrap.style.display = 'block';
-        srcBox.innerHTML = metaPlayGroups.map(function(g, i) {
-            var cls = 'src-switch-btn' + (i === playState.playSrc ? ' is-active' : '');
-            return '<button class="'+cls+'" data-src="'+i+'">'+g.sn+'</button>';
-        }).join('');
-        srcBox.querySelectorAll('.src-switch-btn').forEach(function(btn) {
-            btn.onclick = function() {
-                var idx = Number(btn.dataset.src);
-                if (idx === playState.playSrc) return;
-                playState.playSrc = idx;
-                rebuildAll(idx);
-                togglePanel(false);
-            };
-        });
-    } else {
-        srcWrap.style.display = 'none';
-    }
-
-    // 总集数
-    document.getElementById('totalEp').innerText = '共'+episodeList.length+'集';
-
-    // 分页标签
-    var tabWrap = document.getElementById('tabWrap');
-    tabWrap.innerHTML = '';
-    var groupTotal = Math.ceil(episodeList.length / 30);
-    if (groupTotal > 1) {
-        for (var g = 0; g < groupTotal; g++) {
-            var s = g * 30 + 1;
-            var e = Math.min((g + 1) * 30, episodeList.length);
-            var tab = document.createElement('button');
-            tab.className = 'u-text-sm u-whitespace-nowrap u-transition-colors';
-            tab.style.cssText = g === 0 ? 'color:var(--accent-strong);opacity:1' : 'color:var(--text-muted);opacity:0.6';
-            tab.dataset.group = g;
-            tab.innerText = s + '~' + e;
-            tabWrap.appendChild(tab);
-            tab.onclick = function() {
-                tabWrap.querySelectorAll('button').forEach(function(t) {
-                    t.style.cssText = 'color:#ddd;opacity:0.6';
+        // ==================== 数据加载 ====================
+        function loadState() {
+            return fetch("/api/popout_state")
+                .then((r) => r.json())
+                .then((state) => {
+                    console.log("[DEBUG] API popout_state:", state);
+                    if (state && state.playGroups) return state;
+                    console.warn(
+                        "[DEBUG] API returned no playGroups, trying localStorage",
+                    );
+                    const raw = localStorage.getItem("cms_popout_state");
+                    if (!raw) throw new Error("缺少播放数据");
+                    return JSON.parse(raw);
+                })
+                .catch((err) => {
+                    console.warn(
+                        "[DEBUG] API failed:",
+                        err.message,
+                        "trying localStorage",
+                    );
+                    const raw = localStorage.getItem("cms_popout_state");
+                    if (!raw) throw new Error("缺少播放数据");
+                    return JSON.parse(raw);
                 });
-                this.style.cssText = 'color:var(--accent-strong);opacity:1';
-                renderEpGrid(Number(this.dataset.group));
-            };
         }
-    }
 
-    renderEpGrid(0);
-}
-
-function renderEpGrid(groupIdx) {
-    var grid = document.getElementById('epGrid');
-    grid.innerHTML = '';
-    var start = groupIdx * 30;
-    var end = Math.min((groupIdx + 1) * 30, episodeList.length);
-    var curIdx = verticalSwiper ? verticalSwiper.activeIndex : playState.playEp;
-    for (var i = start; i < end; i++) {
-        var ep = episodeList[i];
-        var isActive = i === curIdx;
-        var btn = document.createElement('button');
-        btn.className = 'ep-item' + (isActive ? ' is-active' : '');
-        btn.innerText = ep.name.replace(/第|集/g, '');
-        btn.dataset.epIndex = i;
-        grid.appendChild(btn);
-        btn.onclick = function() {
-            var target = Number(this.dataset.epIndex);
-            togglePanel(false);
-            // 跳转前确保目标集（及之前）的 slide 已渲染到 DOM，否则 Swiper slideTo 会失效
-            ensureSlidesRendered(target);
-            verticalSwiper.slideTo(target);
-        };
-    }
-}
-
-function togglePanel(show) {
-    var panel = document.querySelector('.tiktok-right-panel-2');
-    if (show) panel.classList.add('is-open');
-    else panel.classList.remove('is-open');
-}
-
-// ==================== 批量渲染 ====================
-var renderedSlides = 0;   // 已加入 DOM 的 slide 数量（与播放器是否初始化无关）
-function renderBatch(start, count) {
-    var wrap = document.getElementById('swiperWrapper');
-    var end = Math.min(start + count, episodeList.length);
-    for (var i = start; i < end; i++) {
-        wrap.insertAdjacentHTML('beforeend', createSlide(episodeList[i], i));
-        renderedSlides++;
-    }
-    verticalSwiper.update();
-}
-
-// 确保目标索引（含）之前的所有 slide 都已渲染到 DOM。
-// 用于「从右侧面板直接跳转到第 N 集」或「恢复播放到上次进度」时，
-// 避免 Swiper slideTo 因目标 slide 尚未渲染而跳到错误位置或失效。
-// 每次批量渲染 7 集，直到覆盖目标索引。
-function ensureSlidesRendered(targetIdx) {
-    if (!verticalSwiper) return;
-    targetIdx = Math.min(Math.max(0, targetIdx), episodeList.length - 1);
-    while (renderedSlides <= targetIdx && renderedSlides < episodeList.length) {
-        renderBatch(renderedSlides, 7);
-    }
-}
-
-// 预渲染相邻集（±1）确保滑动后立即可见；仅当前集播放，远离(>2)的销毁释放。
-function activateActiveSlide() {
-    var actIdx = verticalSwiper ? verticalSwiper.activeIndex : 0;
-    currentActiveIndex = actIdx;
-
-    var boxes = document.querySelectorAll('.player-box');
-    boxes.forEach(function(box) {
-        var idx = Number(box.dataset.epIndex);
-        var dist = Math.abs(idx - actIdx);
-        if (dist <= 1) {
-            // 预渲染相邻集（±1）：当前集真正播放，邻集先建好以便切到时不再空白
-            if (!playerMap.has(box)) initPlayer(box, dist === 0);
-        } else if (dist > 2) {
-            // 远离当前集的播放器销毁释放，回滚到此处会重新初始化
-            var old = playerMap.get(box);
-            if (old) { try { old.destroy(); } catch (e) {} playerMap.delete(box); }
+        function buildEpisodeList() {
+            const src = playState.playGroups[playState.playSrc];
+            if (!src || !src.ep) return [];
+            return src.ep.map((ep, i) => ({
+                url: ep.u,
+                name: ep.n,
+                globalIndex: i,
+            }));
         }
-    });
 
-    // 仅当前集播放，其它（含已预渲染的邻集）暂停——隐藏分集不播放
-    activePlayer = null;
-    playerMap.forEach(function(p, box) {
-        var idx = Number(box.dataset.epIndex);
-        if (idx === actIdx) {
-            activePlayer = p;
-            p.play().catch(function() {});
-        } else {
-            try { p.pause(); } catch (e) {}
+        // 从主窗口配置同步主题（深色模式 + 风格主题）
+        function syncThemeFromConfig() {
+            fetch("/api/config/load")
+                .then((r) => r.json())
+                .then((data) => {
+                    var cfg = data && data.cms_cfg ? data.cms_cfg : {};
+                    var theme = cfg.theme || "dark";
+                    var styleTheme = cfg.styleTheme || "default";
+                    var dark =
+                        theme === "dark" ||
+                        (theme === "auto" &&
+                            window.matchMedia("(prefers-color-scheme:dark)").matches);
+                    document.documentElement.classList.toggle("dark", dark);
+                    document.documentElement.setAttribute("data-theme", styleTheme);
+                })
+                .catch(() => {
+                    // 失败时默认深色
+                    document.documentElement.classList.add("dark");
+                });
         }
-    });
-}
 
-function updateTopEpLabel() {
-    var idx = verticalSwiper ? verticalSwiper.activeIndex : 0;
-    var el = document.getElementById('topEpLabel');
-    if (el) el.innerText = '第 ' + (idx + 1) + ' 集';
-}
-
-// ==================== 重建全部 Slide（切换线路） ====================
-function rebuildAll(targetSrcIdx) {
-    // 销毁所有播放器
-    playerMap.forEach(function(p) { try { p.destroy(); } catch(e) {} });
-    playerMap.clear();
-    activePlayer = null;
-
-    // 重建列表
-    playState.playSrc = targetSrcIdx;
-    playState.playEp = 0;
-    episodeList = buildEpisodeList();
-
-    // 清空并重建 Swiper
-    renderedSlides = 0;
-    verticalSwiper.removeAllSlides();
-    renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
-
-    // 跳转到第一集
-    verticalSwiper.slideTo(0, 0);
-    setTimeout(function() {
-        activateActiveSlide();
-        updateTopEpLabel();
-    }, 400);
-}
-
-// ==================== 返回按钮 ====================
-// 点击返回不关闭播放窗口，只显示主窗口（最小化/隐藏后都能恢复）。
-// 与原生播放器行为一致：返回=回到列表，播放继续在后台。
-function goBack() {
-    if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
-        window.pywebview.api.show_main_window();
-    } else {
-        window.close();
-    }
-}
-
-function toggleFav() {
-    var favKey = 'cms_popout_fav';
-    var favList = [];
-    try { favList = JSON.parse(localStorage.getItem(favKey) || '[]'); } catch(e) {}
-    var item = playState.currentItem;
-    if (!item) return;
-    var idx = favList.findIndex(function(f) { return String(f.vod_id) === String(item.vod_id); });
-    var btn = document.querySelector('.floating-actions button:first-child svg');
-    if (idx > -1) {
-        favList.splice(idx, 1);
-        if (btn) btn.setAttribute('fill', 'none');
-    } else {
-        favList.unshift(item);
-        if (btn) btn.setAttribute('fill', 'currentColor');
-    }
-    localStorage.setItem(favKey, JSON.stringify(favList));
-}
-
-// ==================== 播放设置（翻页 / 跳过片头片尾） ====================
-// 连播默认开启（不再提供开关）：本集播完自动续播下一集。
-var autoNextEnabled = true;
-var ppSettings = { pagination: true, autoNext: true, skipIntro: false, skipIntroTime: 0, skipOutro: false, skipOutroTime: 0 };
-
-function loadPlayerSettings() {
-    try {
-        var raw = localStorage.getItem('cms_player_settings');
-        if (raw) {
-            var s = JSON.parse(raw);
-            ppSettings.pagination = s.pagination !== false;
-            ppSettings.autoNext = s.autoNext !== false;
-            ppSettings.skipIntro = s.skipIntro === true;
-            ppSettings.skipIntroTime = Number(s.skipIntroTime) || 0;
-            ppSettings.skipOutro = s.skipOutro === true;
-            ppSettings.skipOutroTime = Number(s.skipOutroTime) || 0;
+        function setupMeta() {
+            const item = playState.currentItem;
+            if (!item) return;
+            metaTitle = item.vod_name || playState.playerTitle || "";
+            metaPoster = item.vod_pic || "";
+            metaTags = [item.type_name, item.vod_year, item.vod_area].filter(
+                Boolean,
+            );
+            metaDesc = (item.vod_content || "").replace(/&nbsp;/g, " ");
+            metaActors = (item.vod_actor || "").split(/[,，]/).filter(Boolean);
+            metaPlayGroups = playState.playGroups || [];
+            metaPlaySrc = playState.playSrc || 0;
+            document.title = metaTitle || "TSPlayer";
         }
-    } catch (e) {}
-    autoNextEnabled = ppSettings.autoNext;
-}
-function savePlayerSettings() {
-    try { localStorage.setItem('cms_player_settings', JSON.stringify(ppSettings)); } catch (e) {}
-}
-function applyPlayerSettings() {
-    // 翻页显示开关 → 视频右侧上下集切换按钮(.sider-trigger)显隐
-    var triggers = document.querySelectorAll('.sider-trigger');
-    triggers.forEach(function(el) { el.style.display = ppSettings.pagination ? '' : 'none'; });
-    var tabWrap = document.getElementById('tabWrap');
-    if (tabWrap) tabWrap.style.display = ppSettings.pagination ? '' : 'none';
-    var tp = document.getElementById('ppTogglePagination');
-    if (tp) tp.classList.toggle('on', ppSettings.pagination);
-    syncSkipUI();
-}
-function toggleSetting(key) {
-    if (key === 'pagination') ppSettings.pagination = !ppSettings.pagination;
-    savePlayerSettings();
-    applyPlayerSettings();
-}
 
-// 同步「跳过片头片尾」控件状态（复选框 + 数值 + 子行显隐）
-function syncSkipUI() {
-    var si = document.getElementById('ppSkipIntro'), st = document.getElementById('ppIntroTime');
-    var so = document.getElementById('ppSkipOutro'), ot = document.getElementById('ppOutroTime');
-    var introSub = document.getElementById('introSub');
-    var outroSub = document.getElementById('outroSub');
-    if (si) si.checked = !!ppSettings.skipIntro;
-    if (st) st.value = ppSettings.skipIntroTime || 0;
-    if (introSub) introSub.hidden = !ppSettings.skipIntro;
-    if (so) so.checked = !!ppSettings.skipOutro;
-    if (ot) ot.value = ppSettings.skipOutroTime || 0;
-    if (outroSub) outroSub.hidden = !ppSettings.skipOutro;
-}
-
-// 折叠 / 展开「设置」分区
-function toggleSettingsSection(el) {
-    var section = el.closest('.pp-section');
-    if (section) section.classList.toggle('collapsed');
-}
-
-// 右侧面板 Tab 切换
-function switchPanelTab(tabName) {
-    document.querySelectorAll('.pp-tab-btn').forEach(function(btn) {
-        btn.classList.toggle('is-active', btn.dataset.tab === tabName);
-    });
-    document.querySelectorAll('.pp-tab-panel').forEach(function(panel) {
-        panel.classList.toggle('is-active', panel.dataset.tab === tabName);
-    });
-}
-
-// 切换跳过开关：保存 + 显隐对应子行
-function onSkipToggle(kind) {
-    onSkipChange();
-    var sub = document.getElementById(kind === 'intro' ? 'introSub' : 'outroSub');
-    var cb = document.getElementById(kind === 'intro' ? 'ppSkipIntro' : 'ppSkipOutro');
-    if (sub && cb) sub.hidden = !cb.checked;
-}
-
-// 跳过片头片尾：从面板控件读取 → 存盘 → 立即应用到当前播放器
-function onSkipChange() {
-    var si = document.getElementById('ppSkipIntro'), st = document.getElementById('ppIntroTime');
-    var so = document.getElementById('ppSkipOutro'), ot = document.getElementById('ppOutroTime');
-    ppSettings.skipIntro = !!(si && si.checked);
-    ppSettings.skipIntroTime = Number(st && st.value) || 0;
-    ppSettings.skipOutro = !!(so && so.checked);
-    ppSettings.skipOutroTime = Number(ot && ot.value) || 0;
-    savePlayerSettings();
-    var sp = getActivePlayer();
-    if (sp) setupSkip(sp, sp.__box);
-}
-
-// 「获取当前」：把片头秒数设为当前播放进度；片尾秒数设为剩余时间（倒数）
-function getPlayerTime() {
-    var v = getActiveVideo();
-    if (!v) return;
-    var ipt = document.getElementById('ppIntroTime');
-    if (ipt) { ipt.value = Math.floor(v.currentTime || 0); onSkipChange(); }
-}
-function getRemainingTime() {
-    var v = getActiveVideo();
-    if (!v) return;
-    var dur = v.duration || 0;
-    var ipt = document.getElementById('ppOutroTime');
-    if (ipt) { ipt.value = Math.max(0, Math.floor(dur - (v.currentTime || 0))); onSkipChange(); }
-}
-
-// 给播放器绑定跳过逻辑：片头 seek 到指定秒；临近片尾 seek 到结尾触发 ended（由 autoNext 续播）
-function setupSkip(player, box) {
-    if (!player || !box) return;
-    if (box._skipHandler) { try { player.off('timeupdate', box._skipHandler); } catch (e) {} }
-    box._introDone = false;
-    var handler = function () {
-        var v = box.querySelector('video');
-        if (!v) return;
-        var t = v.currentTime || 0;
-        var dur = v.duration || 0;
-        if (ppSettings.skipIntro && !box._introDone && t < ppSettings.skipIntroTime) {
-            box._introDone = true;
-            try { v.currentTime = ppSettings.skipIntroTime; } catch (e) {}
-        }
-        if (ppSettings.skipOutro && dur && t > dur - ppSettings.skipOutroTime && t < dur - 0.3) {
-            try { v.currentTime = dur; } catch (e) {}
-        }
-    };
-    box._skipHandler = handler;
-    try { player.on('timeupdate', handler); } catch (e) {}
-}
-
-// 编辑 API 源：打开主窗口设置中心 → API 源 标签页（与主窗口「编辑 API 源」一致）
-function openApiSourceEdit() {
-    if (window.pywebview && window.pywebview.api && window.pywebview.api.open_main_settings) {
-        window.pywebview.api.open_main_settings('sources');
-    }
-}
-
-function openSettingsPanel() {
-    renderSidePanel();
-    applyPlayerSettings();
-    togglePanel(true);
-    switchPanelTab('setting');
-}
-
-// ==================== 入口 ====================
-console.log('[DEBUG] Player page loaded, starting state fetch...');
-loadState().then(function(state) {
-    console.log('[DEBUG] State loaded, playSrc=' + state.playSrc + ' playEp=' + state.playEp);
-    playState = state;
-    loadPlayerSettings();
-    setupMeta();
-    syncThemeFromConfig();  // 同步主窗口主题到播放窗口
-    episodeList = buildEpisodeList();
-    console.log('[DEBUG] episodeList length=' + episodeList.length, 'first ep:', episodeList[0]);
-
-    // 初始化 Swiper
-    verticalSwiper = new Swiper('.verticalSwiper', {
-        direction: 'vertical',
-        mousewheel: true,
-        keyboard: { enabled: true },
-        slidesPerView: 1,
-        spaceBetween: 0,
-        loop: false,
-        speed: 350,
-        on: {
-            slideChange: function() {
-                activateActiveSlide();
-                togglePanel(false);
-                updateTopEpLabel();
-
-                var idx = verticalSwiper.activeIndex;
-                playState.playEp = idx;
-
-                // 上报播放进度到主窗口 → 保存播放历史（独立播放窗口此前不写历史）
-                // 传递完整的 currentItem JSON，主窗口端直接设置 currentItem 再 saveHistory
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.report_play_progress) {
-                    var item = playState.currentItem || {};
-                    try {
-                        window.pywebview.api.report_play_progress(
-                            JSON.stringify(item),
-                            playState.playSrc || 0,
-                            idx,
-                            0
+        // ==================== 创建 Slide ====================
+        function createSlide(ep, epIndex) {
+            const atFirst = epIndex === 0;
+            const atLast = epIndex === episodeList.length - 1;
+            const prevCls =
+                "trigger-btn prev-ep-btn" + (atFirst ? " is-disabled" : "");
+            const nextCls =
+                "trigger-btn next-ep-btn" + (atLast ? " is-disabled" : "");
+            const prevDisabled = atFirst ? " disabled" : "";
+            const nextDisabled = atLast ? " disabled" : "";
+            const pagDisp =
+                typeof ppSettings !== "undefined" && ppSettings.pagination
+                    ? ""
+                    : "none";
+            return (
+                "" +
+                '<div class="swiper-slide u-relative u-overflow-hidden">' +
+                '  <div class="xgplayer-blur-bg ui-fade">' +
+                '    <img class="xgplayer-blur-img" src="' +
+                metaPoster +
+                '" alt="">' +
+                "  </div>" +
+                '  <div class="player-box ui-wrap u-flex" data-ep-index="' +
+                epIndex +
+                '">' +
+                '    <div id="xg-' +
+                epIndex +
+                '" class="xg-container" style="width:100%;height:100%"></div>' +
+                "    <!-- PC 右侧上下切换 -->" +
+                '    <div class="sider-trigger ui-fade" style="display:' +
+                pagDisp +
+                '">' +
+                '      <button class="' +
+                prevCls +
+                '"' +
+                prevDisabled +
+                '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"><g opacity="1"> <path d="M7.26904 16.3162C6.7251 15.7723 6.7251 14.8904 7.26904 14.3465L12.325 9.29053C12.8689 8.74658 13.7508 8.74658 14.2948 9.29053L14.3061 9.30196L19.3506 14.3465C19.8946 14.8905 19.8946 15.7724 19.3506 16.3163C18.8067 16.8603 17.9248 16.8603 17.3808 16.3163L13.3098 12.2453L9.23884 16.3162C8.69489 16.8602 7.81299 16.8602 7.26904 16.3162Z" fill="currentColor"></path> </g> </svg></button>' +
+                '      <button class="' +
+                nextCls +
+                '"' +
+                nextDisabled +
+                '><svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg" width="26px" height="26px" focusable="false"> <g opacity="1"> <path d="M7.26904 9.29059C6.7251 9.83453 6.7251 10.7164 7.26904 11.2604L12.325 16.3163C12.8689 16.8603 13.7508 16.8603 14.2948 16.3163L14.3061 16.3049L19.3506 11.2603C19.8946 10.7164 19.8946 9.83447 19.3506 9.29053C18.8067 8.74658 17.9248 8.74658 17.3808 9.29053L13.3098 13.3616L9.23884 9.29059C8.69489 8.74664 7.81299 8.74665 7.26904 9.29059Z" fill="currentColor"></path> </g> </svg></button>' +
+                "    </div>" +
+                "    <!-- 左下角信息卡 -->" +
+                '    <div class="video-info-bottom u-z20 u-flex u-col u-gap-1 ui-fade" style="pointer-events:auto">' +
+                '  <h1 class="video-info-bottom-content-text u-text-2xl u-cursor-pointer u-line-clamp-1 u-leading-loose">' +
+                metaTitle +
+                "</h1>" +
+                '  <div class="u-flex u-row u-wrap u-gap-1">' +
+                metaActors
+                    .slice(0, 3)
+                    .map(function (name) {
+                        return (
+                            '<div class="u-rounded-xl u-py-1 u-px-3 u-cursor-pointer" style="background:rgba(255,255,255,0.15)"><span style="font-size:14px">' +
+                            name +
+                            "</span></div>"
                         );
-                    } catch(e) { console.warn('[report_play_progress] failed:', e); }
-                }
+                    })
+                    .join("") +
+                "  </div>" +
+                '  <div class="info-desc-fold u-mt-1 u-text-sm" style="color:#ccc" onclick="this.classList.toggle(\'expanded\')" title="点击展开/收起简介">' +
+                metaDesc +
+                "  </div>" +
+                '  <div class="u-flex u-items-center u-gap-2 u-mt-2">' +
+                '    <span class="content idx_name u-text-sm" style="color:#ddd">' +
+                ep.name +
+                "</span>" +
+                '    <span class="u-text-xs" style="color:var(--accent)">#' +
+                (metaTags[0] || "") +
+                "</span>" +
+                "  </div>" +
+                '  <div><div class="u-inline-flex u-max-w-full u-w-auto u-row u-items-center u-gap-2 u-rounded-md u-p-3 u-mt-2 u-cursor-pointer open-panel-btn" style="background:rgba(255,255,255,0.08)">' +
+                '    <svg class="u-flex-none" width="16" height="16" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path d="M8 0a1.92 1.92 0 0 0-.765.16L.707 3.205l-.016.008a1.212 1.212 0 0 0 0 2.163l.018.01 6.514 3.018.012.004a1.919 1.919 0 0 0 1.53 0l6.528-3.047.016-.007a1.213 1.213 0 0 0 0-2.164l-.018-.01L8.777.165 8.765.159A1.92 1.92 0 0 0 8 0zm7.921 7.88c.198.43.01.94-.42 1.138l-6.703 3.089-.003.002a1.956 1.956 0 0 1-1.624 0l-.003-.002-6.671-3.09a.857.857 0 0 1 .72-1.555l6.668 3.087a.241.241 0 0 0 .198 0l6.702-3.088a.856.856 0 0 1 1.136.42zm-.42 4.853a.857.857 0 0 0-.716-1.556l-6.702 3.086a.247.247 0 0 1-.198.001l-6.668-3.087a.858.858 0 0 0-.72 1.556l6.67 3.089.004.001a1.954 1.954 0 0 0 1.624 0h.003l6.704-3.089z" fill="#FFF"></path></g></svg>' +
+                '    <span class="u-whitespace-nowrap u-text-sm">选集(共' +
+                episodeList.length +
+                "集)</span>" +
+                "  </div></div>" +
+                "</div>" +
+                '<div class="floating-actions ui-fade">' +
+                '  <button title="收藏" onclick="event.stopPropagation();toggleFav()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg></button>' +
+                '  <button class="pp-gear-btn" title="设置" onclick="event.stopPropagation();openSettingsPanel()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></button>' +
+                "</div>"
+            );
+            "  </div>" + "</div>";
+        }
 
-                // 恢复收藏图标状态
-                var favKey = 'cms_popout_fav';
-                var favList = [];
-                try { favList = JSON.parse(localStorage.getItem(favKey) || '[]'); } catch(e) {}
-                var item = playState.currentItem;
-                var isFav = item && favList.some(function(f) { return String(f.vod_id) === String(item.vod_id); });
-                var favBtn = document.querySelector('.floating-actions button:first-child svg');
-                if (favBtn) favBtn.setAttribute('fill', isFav ? 'currentColor' : 'none');
+        // ==================== 进度条拖拽保护（Swiper 冲突修复） ====================
+        // 给 XGPlayer 控件区打上 Swiper 的 noSwiping 标记：否则左键拖动进度条会被 Swiper 当作竖向滑动手势抢占，
+        // 导致进度条无法拖动——右键不被 Swiper 识别（仅响应主键），因此右键拖动正常。
+        // 标记后，控件区内的左键拖动不再触发 Swiper，交由 XGPlayer 处理进度/音量拖拽；视频区仍可正常竖向滑动切集。
+        function markNoSwiping(wrapEl) {
+            var xg = wrapEl.querySelector(".xgplayer");
+            if (!xg) return false;
+            var targets = xg.querySelectorAll(
+                ".xgplayer-controls, .xgplayer-progress, .xgplayer-progress-played, " +
+                ".xgplayer-volume, .xgplayer-slider, .xgplayer-playbackrate, .xgplayer-definition",
+            );
+            targets.forEach(function (el) {
+                el.classList.add("swiper-no-swiping");
+            });
+            return targets.length > 0;
+        }
 
-                // 临近已渲染末尾时懒加载更多 slide（以已渲染数量为准，避免与已销毁的播放器计数混淆）
-                // 修复：原条件 idx >= episodeList.length - 3 是错的——总集数可能远大于已渲染数，
-                // 导致初始只渲染7集时永远不触发加载（如30集时需 idx>=27 才加载，但最多只能滑到 idx=6）。
-                // 正确逻辑：接近「已渲染末尾」(renderedSlides) 时就加载下一批。
-                if (idx >= renderedSlides - 3 && renderedSlides < episodeList.length) {
-                    renderBatch(renderedSlides, 7);
+        // ==================== 播放器初始化 ====================
+        async function initPlayer(wrapEl, shouldPlay) {
+            const epIndex = Number(wrapEl.dataset.epIndex);
+            const ep = episodeList[epIndex];
+            if (!ep) {
+                console.error("[DEBUG] No episode data for index", epIndex);
+                return null;
+            }
+            const container = wrapEl.querySelector(".xg-container");
+            const containerId = "xg-" + epIndex;
+            console.log(
+                "[DEBUG] initPlayer idx=" + epIndex,
+                "url=" + ep.url.substring(0, 80),
+                "container size=" +
+                container.offsetWidth +
+                "x" +
+                container.offsetHeight,
+            );
+
+            // 智能去广告：先把 m3u8 过滤后再交给 XGPlayer（此前是直连，广告照播）
+            let playUrl = ep.url;
+            if (/\.m3u8/i.test(ep.url)) {
+                try {
+                    playUrl = await fetchFilteredM3u8(ep.url);
+                    console.log(
+                        "[DEBUG] filtered m3u8 url=" + String(playUrl).substring(0, 90),
+                    );
+                } catch (e) {
+                    console.warn("[DEBUG] m3u8 过滤失败，直连原始地址:", e);
+                    playUrl = ep.url;
                 }
             }
-        }
-    });
 
-    console.log('[DEBUG] Swiper created, rendering initial batch...');
-    renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
-    applyPlayerSettings();
-    var targetIdx = Math.min(playState.playEp || 0, episodeList.length - 1);
-    console.log('[DEBUG] sliding to targetIdx=' + targetIdx);
-    // 恢复播放到上次进度时，确保目标集已渲染（可能超过初始7集）
-    if (targetIdx >= renderedSlides) {
-        ensureSlidesRendered(targetIdx);
-    }
-    if (targetIdx > 0) {
-        verticalSwiper.slideTo(targetIdx, 0);
-    }
-    setTimeout(function() {
-        activateActiveSlide();
-        console.log('[DEBUG] autoplay activePlayer=', !!activePlayer);
-        updateTopEpLabel();
-        // 初始加载后上报一次历史，确保第一集也能记录（slideChange 可能不触发初始索引）
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.report_play_progress) {
-            var item = playState.currentItem || {};
             try {
-                window.pywebview.api.report_play_progress(
-                    JSON.stringify(item),
-                    playState.playSrc || 0,
-                    verticalSwiper ? verticalSwiper.activeIndex : 0,
-                    0
+                const plugins = window.HlsPlayer ? [window.HlsPlayer] : [];
+                const player = new window.Player({
+                    id: containerId,
+                    url: playUrl,
+                    autoplay: !!shouldPlay,
+                    volume: 0.6,
+                    download: false, // 关闭 XGPlayer 自带下载按钮
+                    // 禁用 XGPlayer 自带 fullscreen 插件：WebView2 不支持 DOM requestFullscreen，
+                    // 且插件会把 dblclick 绑定到原生全屏（失效），故改为我们自己在视频区监听 dblclick
+                    // 调 pywebview 窗口原生 toggle_fullscreen()（真正显示器全屏），避免重复触发/失效。
+                    ignores: ["fullscreen"],
+                    fluid: false, //流式布局
+                    memoryPlay: true, //记忆播放
+                    // fit: 'contain',
+                    playsinline: true,
+                    fitVideoSize: "auto",
+                    cssFullscreen: true, //样式全屏
+                    Fullscreen: true, //全屏
+                    // height: window.innerHeight,
+                    // width: window.innerWidth,
+                    controls: true,
+                    plugins: plugins,
+                    // 加大 HLS 缓冲前瞻：默认 maxBufferLength≈30s，CDN 经本服务代理后
+                    // 若每片尚有握手/调度开销，缓冲太浅会「播一段等一段」。提高到 90s 前瞻、
+                    // 120s 上限，并保留 30s 后向缓冲，让代理切片在播放间隙提前预取到位。
+                    // enableWorker 把切片解析移到 Worker 线程，避免主线程卡顿；
+                    // 重试次数上调，偶发单片失败自动恢复而非中断。
+                    hls: {
+                        maxBufferLength: 90,
+                        maxMaxBufferLength: 120,
+                        maxBufferSize: 120 * 1000 * 1000,
+                        backBufferLength: 30,
+                        enableWorker: true,
+                        lowLatencyMode: false,
+                        fragLoadingMaxRetry: 5,
+                        manifestLoadingMaxRetry: 4,
+                        levelLoadingMaxRetry: 4,
+                        fragLoadingRetryDelay: 500,
+                        manifestLoadingRetryDelay: 500,
+                        levelLoadingRetryDelay: 500,
+                    },
+                    controlConfig: {
+                        clearScreen: true,
+                        playbackRate: [0.5, 0.75, 1, 1.5, 2],
+                        autoPlayNext: true, //播放下一集
+                    },
+                });
+                playerMap.set(wrapEl, player);
+                player.__box = wrapEl;
+                // 异步初始化完成时，若该 slide 仍是当前激活集则同步 activePlayer：
+                // 消除「切到未预渲染的集 → 同步遍历拿不到新播放器 → activePlayer 残留上一集/置空」的竞态
+                // （面板「跳过片头片尾」等依赖 activePlayer 的功能因此也保持正确）。
+                if (Number(wrapEl.dataset.epIndex) === currentActiveIndex) {
+                    activePlayer = player;
+                }
+                setupSkip(player, wrapEl);
+                console.log(
+                    "[DEBUG] XGPlayer created for idx=" + epIndex,
+                    "plugins:",
+                    plugins.length,
                 );
-            } catch(e) {}
+
+                player.on("error", function (e) {
+                    console.error("[DEBUG] XGPlayer error:", e);
+                    // 自动切换下一条线路
+                    var nextSrc = playState.playSrc + 1;
+                    if (playState.playGroups && nextSrc < playState.playGroups.length) {
+                        console.log("[DEBUG] Auto-switching to source", nextSrc);
+                        rebuildAll(nextSrc);
+                    }
+                });
+
+                player.on("canplay", function () {
+                    if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return; // 仅当前集才按视频比例调整窗口
+                    if (wrapEl._aspectApplied) return; // 每集只按视频比例调整一次窗口，避免拖动进度条 re-buffer 时反复 resize
+                    var videoEl = container.querySelector("video");
+                    if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
+                        console.log(
+                            "[DEBUG] Video size:",
+                            videoEl.videoWidth,
+                            "x",
+                            videoEl.videoHeight,
+                        );
+                        if (
+                            typeof window.pywebview !== "undefined" &&
+                            window.pywebview.api
+                        ) {
+                            window.pywebview.api.resize_to_aspect(
+                                videoEl.videoWidth,
+                                videoEl.videoHeight,
+                            );
+                            wrapEl._aspectApplied = true;
+                        }
+                    }
+                });
+
+                // 清屏
+                player.on("clearScreen", function (flag) {
+                    clearScreenState = flag;
+                    var allUi = wrapEl.querySelectorAll(".ui-fade");
+                    allUi.forEach(function (el) {
+                        el.style.opacity = flag ? "0" : "1";
+                        el.style.pointerEvents = flag ? "none" : "auto";
+                    });
+                    var topLabel = document.getElementById("topEpLabel");
+                    if (topLabel) {
+                        topLabel.style.opacity = flag ? "0" : "1";
+                        topLabel.style.pointerEvents = flag ? "none" : "auto";
+                    }
+                });
+
+                // 合集按钮 → 打开右侧面板并显示「选集」Tab
+                var openBtn = wrapEl.querySelector(".open-panel-btn");
+                if (openBtn) {
+                    openBtn.onclick = function () {
+                        renderSidePanel();
+                        togglePanel(true);
+                        switchPanelTab("episodes");
+                    };
+                }
+
+                // 右侧上下切换按钮
+                var prevBtn = wrapEl.querySelector(".prev-ep-btn");
+                var nextBtn = wrapEl.querySelector(".next-ep-btn");
+                if (prevBtn)
+                    prevBtn.onclick = function () {
+                        if (epIndex > 0) verticalSwiper.slideTo(epIndex - 1);
+                    };
+                if (nextBtn)
+                    nextBtn.onclick = function () {
+                        if (epIndex < episodeList.length - 1)
+                            verticalSwiper.slideTo(epIndex + 1);
+                    };
+
+                // 播放结束自动下一集（受「连播」开关控制）
+                player.on("ended", function () {
+                    if (autoNextEnabled && epIndex < episodeList.length - 1)
+                        verticalSwiper.slideTo(epIndex + 1);
+                });
+
+                // 双击视频区域 → 原生显示器全屏（WebView2 不支持 DOM 全屏，走 pywebview 窗口原生全屏）。
+                // 控件区（进度条/音量等）双击不触发，避免与控件交互冲突。
+                // 使用捕获阶段(true)：XGPlayer 内部可能在冒泡阶段 stopPropagation，
+                // 导致双击只触发 clearScreen（隐藏控件）而不触发全屏。捕获阶段先于冒泡，确保全屏优先。
+                wrapEl.addEventListener(
+                    "dblclick",
+                    function (e) {
+                        if (e.target.closest(".xgplayer-controls")) return;
+                        e.stopPropagation();
+                        winFullscreenP();
+                    },
+                    true,
+                );
+
+                // 进度条/音量等控件区禁止 Swiper 接管拖拽（见 markNoSwiping 说明）
+                if (!markNoSwiping(wrapEl)) {
+                    setTimeout(function () {
+                        markNoSwiping(wrapEl);
+                    }, 300);
+                }
+
+                // 倍速同步
+                if (playState.playSpeed && playState.playSpeed !== "1") {
+                    try {
+                        player.playbackRate = parseFloat(playState.playSpeed);
+                    } catch (e) { }
+                }
+
+                return player;
+            } catch (e) {
+                console.error("[DEBUG] XGPlayer init failed:", e);
+                return null;
+            }
         }
-    }, 400);
-}).catch(function(err) {
-    console.error('[DEBUG] loadState failed:', err);
-    document.getElementById('swiperWrapper').innerHTML = '<div class="swiper-slide u-flex u-items-center u-justify-center u-text-gray-500 u-text-sm">' + err.message + '</div>';
-    verticalSwiper = new Swiper('.verticalSwiper', { direction: 'vertical' });
-});
 
-// 关闭面板
-document.querySelector('.btn-close-right-panel-2').addEventListener('click', function() { togglePanel(false); });
+        // ==================== 右侧面板 ====================
+        function renderSidePanel() {
+            document.getElementById("panelPoster").src = metaPoster;
+            document.getElementById("panelTitle").innerText = metaTitle;
 
-// ==================== 自定义标题栏 + 边缘缩放（无边框播放窗口） ====================
-// 拖拽/缩放统一由 window-chrome.js 经 pywebview 公共 API 驱动（稳定无抖动）；
-// 边缘热区(.win-edge)由 window-chrome.js 自动绑定，这里只处理标题栏拖拽与双击最大化。
-(function() {
-    var bar = document.getElementById('ppTopbar');
-    function onDown(e) {
-        if (e.target.closest('button')) return;       // 按钮不触发拖拽
-        if (e.button !== 0) return;
-        if (window.WindowChrome) window.WindowChrome.titlebarMouseDown(e);
-    }
-    if (bar) {
-        bar.addEventListener('mousedown', onDown);
-        bar.addEventListener('dblclick', function(e) {
-            if (e.target.closest('button')) return;
+            var tagBox = document.getElementById("panelTags");
+            tagBox.innerHTML = metaTags
+                .map(function (t) {
+                    return (
+                        '<span class="u-px-2 u-py-1 u-rounded u-text-sm">#' +
+                        t +
+                        "</span>"
+                    );
+                })
+                .join("");
+
+            document.getElementById("panelDesc").innerText = metaDesc;
+
+            var actorBox = document.getElementById("panelActor");
+            actorBox.innerHTML = metaActors
+                .map(function (name) {
+                    return (
+                        '<div class="u-px-3 u-py-2 u-rounded-xl u-text-base"><span>' +
+                        name +
+                        "</span></div>"
+                    );
+                })
+                .join("");
+
+            // 线路切换
+            var srcWrap = document.getElementById("panelSourceWrap");
+            var srcBox = document.getElementById("panelSources");
+            if (metaPlayGroups.length > 1) {
+                srcWrap.style.display = "block";
+                srcBox.innerHTML = metaPlayGroups
+                    .map(function (g, i) {
+                        var cls =
+                            "src-switch-btn" +
+                            (i === playState.playSrc ? " is-active" : "");
+                        return (
+                            '<button class="' +
+                            cls +
+                            '" data-src="' +
+                            i +
+                            '">' +
+                            g.sn +
+                            "</button>"
+                        );
+                    })
+                    .join("");
+                srcBox.querySelectorAll(".src-switch-btn").forEach(function (btn) {
+                    btn.onclick = function () {
+                        var idx = Number(btn.dataset.src);
+                        if (idx === playState.playSrc) return;
+                        playState.playSrc = idx;
+                        rebuildAll(idx);
+                        togglePanel(false);
+                    };
+                });
+            } else {
+                srcWrap.style.display = "none";
+            }
+
+            // 总集数
+            document.getElementById("totalEp").innerText =
+                "共" + episodeList.length + "集";
+
+            // 分页标签
+            var tabWrap = document.getElementById("tabWrap");
+            tabWrap.innerHTML = "";
+            var groupTotal = Math.ceil(episodeList.length / 30);
+            if (groupTotal > 1) {
+                for (var g = 0; g < groupTotal; g++) {
+                    var s = g * 30 + 1;
+                    var e = Math.min((g + 1) * 30, episodeList.length);
+                    var tab = document.createElement("button");
+                    tab.className = "u-text-sm u-whitespace-nowrap u-transition-colors";
+                    tab.style.cssText =
+                        g === 0
+                            ? "color:var(--accent-strong);opacity:1"
+                            : "color:var(--text-muted);opacity:0.6";
+                    tab.dataset.group = g;
+                    tab.innerText = s + "~" + e;
+                    tabWrap.appendChild(tab);
+                    tab.onclick = function () {
+                        tabWrap.querySelectorAll("button").forEach(function (t) {
+                            t.style.cssText = "color:#ddd;opacity:0.6";
+                        });
+                        this.style.cssText = "color:var(--accent-strong);opacity:1";
+                        renderEpGrid(Number(this.dataset.group));
+                    };
+                }
+            }
+
+            renderEpGrid(0);
+        }
+
+        function renderEpGrid(groupIdx) {
+            var grid = document.getElementById("epGrid");
+            grid.innerHTML = "";
+            var start = groupIdx * 30;
+            var end = Math.min((groupIdx + 1) * 30, episodeList.length);
+            var curIdx = verticalSwiper
+                ? verticalSwiper.activeIndex
+                : playState.playEp;
+            for (var i = start; i < end; i++) {
+                var ep = episodeList[i];
+                var isActive = i === curIdx;
+                var btn = document.createElement("button");
+                btn.className = "ep-item" + (isActive ? " is-active" : "");
+                btn.innerText = ep.name.replace(/第|集/g, "");
+                btn.dataset.epIndex = i;
+                grid.appendChild(btn);
+                btn.onclick = function () {
+                    var target = Number(this.dataset.epIndex);
+                    togglePanel(false);
+                    // 跳转前确保目标集（及之前）的 slide 已渲染到 DOM，否则 Swiper slideTo 会失效
+                    ensureSlidesRendered(target);
+                    verticalSwiper.slideTo(target);
+                };
+            }
+        }
+
+        function togglePanel(show) {
+            var panel = document.querySelector(".tiktok-right-panel-2");
+            if (show) panel.classList.add("is-open");
+            else panel.classList.remove("is-open");
+        }
+
+        // ==================== 批量渲染 ====================
+        var renderedSlides = 0; // 已加入 DOM 的 slide 数量（与播放器是否初始化无关）
+        function renderBatch(start, count) {
+            var wrap = document.getElementById("swiperWrapper");
+            var end = Math.min(start + count, episodeList.length);
+            for (var i = start; i < end; i++) {
+                wrap.insertAdjacentHTML("beforeend", createSlide(episodeList[i], i));
+                renderedSlides++;
+            }
+            verticalSwiper.update();
+        }
+
+        // 确保目标索引（含）之前的所有 slide 都已渲染到 DOM。
+        // 用于「从右侧面板直接跳转到第 N 集」或「恢复播放到上次进度」时，
+        // 避免 Swiper slideTo 因目标 slide 尚未渲染而跳到错误位置或失效。
+        // 每次批量渲染 7 集，直到覆盖目标索引。
+        function ensureSlidesRendered(targetIdx) {
+            if (!verticalSwiper) return;
+            targetIdx = Math.min(Math.max(0, targetIdx), episodeList.length - 1);
+            while (
+                renderedSlides <= targetIdx &&
+                renderedSlides < episodeList.length
+            ) {
+                renderBatch(renderedSlides, 7);
+            }
+        }
+
+        // 预渲染相邻集（±1）确保滑动后立即可见；仅当前集播放，远离(>2)的销毁释放。
+        function activateActiveSlide() {
+            var actIdx = verticalSwiper ? verticalSwiper.activeIndex : 0;
+            currentActiveIndex = actIdx;
+
+            var boxes = document.querySelectorAll(".player-box");
+            boxes.forEach(function (box) {
+                var idx = Number(box.dataset.epIndex);
+                var dist = Math.abs(idx - actIdx);
+                if (dist <= 1) {
+                    // 预渲染相邻集（±1）：当前集真正播放，邻集先建好以便切到时不再空白
+                    if (!playerMap.has(box)) initPlayer(box, dist === 0);
+                } else if (dist > 2) {
+                    // 远离当前集的播放器销毁释放，回滚到此处会重新初始化
+                    var old = playerMap.get(box);
+                    if (old) {
+                        try {
+                            old.destroy();
+                        } catch (e) { }
+                        playerMap.delete(box);
+                    }
+                }
+            });
+
+            // 仅当前集播放，其它（含已预渲染的邻集）暂停——隐藏分集不播放
+            activePlayer = null;
+            playerMap.forEach(function (p, box) {
+                var idx = Number(box.dataset.epIndex);
+                if (idx === actIdx) {
+                    activePlayer = p;
+                    p.play().catch(function () { });
+                } else {
+                    try {
+                        p.pause();
+                    } catch (e) { }
+                }
+            });
+        }
+
+        function updateTopEpLabel() {
+            var idx = verticalSwiper ? verticalSwiper.activeIndex : 0;
+            var el = document.getElementById("topEpLabel");
+            if (el) el.innerText = "第 " + (idx + 1) + " 集";
+        }
+
+        // ==================== 重建全部 Slide（切换线路） ====================
+        function rebuildAll(targetSrcIdx) {
+            // 销毁所有播放器
+            playerMap.forEach(function (p) {
+                try {
+                    p.destroy();
+                } catch (e) { }
+            });
+            playerMap.clear();
+            activePlayer = null;
+
+            // 重建列表
+            playState.playSrc = targetSrcIdx;
+            playState.playEp = 0;
+            episodeList = buildEpisodeList();
+
+            // 清空并重建 Swiper
+            renderedSlides = 0;
+            verticalSwiper.removeAllSlides();
+            renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
+
+            // 跳转到第一集
+            verticalSwiper.slideTo(0, 0);
+            setTimeout(function () {
+                activateActiveSlide();
+                updateTopEpLabel();
+            }, 400);
+        }
+
+        // ==================== 返回按钮 ====================
+        // 点击返回不关闭播放窗口，只显示主窗口（最小化/隐藏后都能恢复）。
+        // 与原生播放器行为一致：返回=回到列表，播放继续在后台。
+        function goBack() {
+            if (typeof window.pywebview !== "undefined" && window.pywebview.api) {
+                window.pywebview.api.show_main_window();
+            } else {
+                window.close();
+            }
+        }
+
+        function toggleFav() {
+            var favKey = "cms_popout_fav";
+            var favList = [];
+            try {
+                favList = JSON.parse(localStorage.getItem(favKey) || "[]");
+            } catch (e) { }
+            var item = playState.currentItem;
+            if (!item) return;
+            var idx = favList.findIndex(function (f) {
+                return String(f.vod_id) === String(item.vod_id);
+            });
+            var btn = document.querySelector(
+                ".floating-actions button:first-child svg",
+            );
+            if (idx > -1) {
+                favList.splice(idx, 1);
+                if (btn) btn.setAttribute("fill", "none");
+            } else {
+                favList.unshift(item);
+                if (btn) btn.setAttribute("fill", "currentColor");
+            }
+            localStorage.setItem(favKey, JSON.stringify(favList));
+        }
+
+        // ==================== 播放设置（翻页 / 跳过片头片尾） ====================
+        // 连播默认开启（不再提供开关）：本集播完自动续播下一集。
+        var autoNextEnabled = true;
+        var ppSettings = {
+            pagination: true,
+            autoNext: true,
+            skipIntro: false,
+            skipIntroTime: 0,
+            skipOutro: false,
+            skipOutroTime: 0,
+        };
+
+        function loadPlayerSettings() {
+            try {
+                var raw = localStorage.getItem("cms_player_settings");
+                if (raw) {
+                    var s = JSON.parse(raw);
+                    ppSettings.pagination = s.pagination !== false;
+                    ppSettings.autoNext = s.autoNext !== false;
+                    ppSettings.skipIntro = s.skipIntro === true;
+                    ppSettings.skipIntroTime = Number(s.skipIntroTime) || 0;
+                    ppSettings.skipOutro = s.skipOutro === true;
+                    ppSettings.skipOutroTime = Number(s.skipOutroTime) || 0;
+                }
+            } catch (e) { }
+            autoNextEnabled = ppSettings.autoNext;
+        }
+        function savePlayerSettings() {
+            try {
+                localStorage.setItem(
+                    "cms_player_settings",
+                    JSON.stringify(ppSettings),
+                );
+            } catch (e) { }
+        }
+        function applyPlayerSettings() {
+            // 翻页显示开关 → 视频右侧上下集切换按钮(.sider-trigger)显隐
+            var triggers = document.querySelectorAll(".sider-trigger");
+            triggers.forEach(function (el) {
+                el.style.display = ppSettings.pagination ? "" : "none";
+            });
+            var tabWrap = document.getElementById("tabWrap");
+            if (tabWrap)
+                tabWrap.style.display = ppSettings.pagination ? "" : "none";
+            var tp = document.getElementById("ppTogglePagination");
+            if (tp) tp.classList.toggle("on", ppSettings.pagination);
+            syncSkipUI();
+        }
+        function toggleSetting(key) {
+            if (key === "pagination")
+                ppSettings.pagination = !ppSettings.pagination;
+            savePlayerSettings();
+            applyPlayerSettings();
+        }
+
+        // 同步「跳过片头片尾」控件状态（复选框 + 数值 + 子行显隐）
+        function syncSkipUI() {
+            var si = document.getElementById("ppSkipIntro"),
+                st = document.getElementById("ppIntroTime");
+            var so = document.getElementById("ppSkipOutro"),
+                ot = document.getElementById("ppOutroTime");
+            var introSub = document.getElementById("introSub");
+            var outroSub = document.getElementById("outroSub");
+            if (si) si.checked = !!ppSettings.skipIntro;
+            if (st) st.value = ppSettings.skipIntroTime || 0;
+            if (introSub) introSub.hidden = !ppSettings.skipIntro;
+            if (so) so.checked = !!ppSettings.skipOutro;
+            if (ot) ot.value = ppSettings.skipOutroTime || 0;
+            if (outroSub) outroSub.hidden = !ppSettings.skipOutro;
+        }
+
+        // 折叠 / 展开「设置」分区
+        function toggleSettingsSection(el) {
+            var section = el.closest(".pp-section");
+            if (section) section.classList.toggle("collapsed");
+        }
+
+        // 右侧面板 Tab 切换
+        function switchPanelTab(tabName) {
+            document.querySelectorAll(".pp-tab-btn").forEach(function (btn) {
+                btn.classList.toggle("is-active", btn.dataset.tab === tabName);
+            });
+            document.querySelectorAll(".pp-tab-panel").forEach(function (panel) {
+                panel.classList.toggle("is-active", panel.dataset.tab === tabName);
+            });
+        }
+
+        // 切换跳过开关：保存 + 显隐对应子行
+        function onSkipToggle(kind) {
+            onSkipChange();
+            var sub = document.getElementById(
+                kind === "intro" ? "introSub" : "outroSub",
+            );
+            var cb = document.getElementById(
+                kind === "intro" ? "ppSkipIntro" : "ppSkipOutro",
+            );
+            if (sub && cb) sub.hidden = !cb.checked;
+        }
+
+        // 跳过片头片尾：从面板控件读取 → 存盘 → 立即应用到当前播放器
+        function onSkipChange() {
+            var si = document.getElementById("ppSkipIntro"),
+                st = document.getElementById("ppIntroTime");
+            var so = document.getElementById("ppSkipOutro"),
+                ot = document.getElementById("ppOutroTime");
+            ppSettings.skipIntro = !!(si && si.checked);
+            ppSettings.skipIntroTime = Number(st && st.value) || 0;
+            ppSettings.skipOutro = !!(so && so.checked);
+            ppSettings.skipOutroTime = Number(ot && ot.value) || 0;
+            savePlayerSettings();
+            var sp = getActivePlayer();
+            if (sp) setupSkip(sp, sp.__box);
+        }
+
+        // 「获取当前」：把片头秒数设为当前播放进度；片尾秒数设为剩余时间（倒数）
+        function getPlayerTime() {
+            var v = getActiveVideo();
+            if (!v) return;
+            var ipt = document.getElementById("ppIntroTime");
+            if (ipt) {
+                ipt.value = Math.floor(v.currentTime || 0);
+                onSkipChange();
+            }
+        }
+        function getRemainingTime() {
+            var v = getActiveVideo();
+            if (!v) return;
+            var dur = v.duration || 0;
+            var ipt = document.getElementById("ppOutroTime");
+            if (ipt) {
+                ipt.value = Math.max(0, Math.floor(dur - (v.currentTime || 0)));
+                onSkipChange();
+            }
+        }
+
+        // 给播放器绑定跳过逻辑：片头 seek 到指定秒；临近片尾 seek 到结尾触发 ended（由 autoNext 续播）
+        function setupSkip(player, box) {
+            if (!player || !box) return;
+            if (box._skipHandler) {
+                try {
+                    player.off("timeupdate", box._skipHandler);
+                } catch (e) { }
+            }
+            box._introDone = false;
+            var handler = function () {
+                var v = box.querySelector("video");
+                if (!v) return;
+                var t = v.currentTime || 0;
+                var dur = v.duration || 0;
+                if (
+                    ppSettings.skipIntro &&
+                    !box._introDone &&
+                    t < ppSettings.skipIntroTime
+                ) {
+                    box._introDone = true;
+                    try {
+                        v.currentTime = ppSettings.skipIntroTime;
+                    } catch (e) { }
+                }
+                if (
+                    ppSettings.skipOutro &&
+                    dur &&
+                    t > dur - ppSettings.skipOutroTime &&
+                    t < dur - 0.3
+                ) {
+                    try {
+                        v.currentTime = dur;
+                    } catch (e) { }
+                }
+            };
+            box._skipHandler = handler;
+            try {
+                player.on("timeupdate", handler);
+            } catch (e) { }
+        }
+
+        // 编辑 API 源：打开主窗口设置中心 → API 源 标签页（与主窗口「编辑 API 源」一致）
+        function openApiSourceEdit() {
+            if (
+                window.pywebview &&
+                window.pywebview.api &&
+                window.pywebview.api.open_main_settings
+            ) {
+                window.pywebview.api.open_main_settings("sources");
+            }
+        }
+
+        function openSettingsPanel() {
+            renderSidePanel();
+            applyPlayerSettings();
+            togglePanel(true);
+            switchPanelTab("setting");
+        }
+
+        // ==================== 入口 ====================
+        console.log("[DEBUG] Player page loaded, starting state fetch...");
+        loadState()
+            .then(function (state) {
+                console.log(
+                    "[DEBUG] State loaded, playSrc=" +
+                    state.playSrc +
+                    " playEp=" +
+                    state.playEp,
+                );
+                playState = state;
+                loadPlayerSettings();
+                setupMeta();
+                syncThemeFromConfig(); // 同步主窗口主题到播放窗口
+                episodeList = buildEpisodeList();
+                console.log(
+                    "[DEBUG] episodeList length=" + episodeList.length,
+                    "first ep:",
+                    episodeList[0],
+                );
+
+                // 初始化 Swiper
+                verticalSwiper = new Swiper(".verticalSwiper", {
+                    direction: "vertical",
+                    mousewheel: true,
+                    keyboard: { enabled: true },
+                    slidesPerView: 1,
+                    spaceBetween: 0,
+                    loop: false,
+                    speed: 350,
+                    on: {
+                        slideChange: function () {
+                            activateActiveSlide();
+                            togglePanel(false);
+                            updateTopEpLabel();
+
+                            var idx = verticalSwiper.activeIndex;
+                            playState.playEp = idx;
+
+                            // 上报播放进度到主窗口 → 保存播放历史（独立播放窗口此前不写历史）
+                            // 传递完整的 currentItem JSON，主窗口端直接设置 currentItem 再 saveHistory
+                            if (
+                                window.pywebview &&
+                                window.pywebview.api &&
+                                window.pywebview.api.report_play_progress
+                            ) {
+                                var item = playState.currentItem || {};
+                                try {
+                                    window.pywebview.api.report_play_progress(
+                                        JSON.stringify(item),
+                                        playState.playSrc || 0,
+                                        idx,
+                                        0,
+                                    );
+                                } catch (e) {
+                                    console.warn("[report_play_progress] failed:", e);
+                                }
+                            }
+
+                            // 恢复收藏图标状态
+                            var favKey = "cms_popout_fav";
+                            var favList = [];
+                            try {
+                                favList = JSON.parse(localStorage.getItem(favKey) || "[]");
+                            } catch (e) { }
+                            var item = playState.currentItem;
+                            var isFav =
+                                item &&
+                                favList.some(function (f) {
+                                    return String(f.vod_id) === String(item.vod_id);
+                                });
+                            var favBtn = document.querySelector(
+                                ".floating-actions button:first-child svg",
+                            );
+                            if (favBtn)
+                                favBtn.setAttribute("fill", isFav ? "currentColor" : "none");
+
+                            // 临近已渲染末尾时懒加载更多 slide（以已渲染数量为准，避免与已销毁的播放器计数混淆）
+                            // 修复：原条件 idx >= episodeList.length - 3 是错的——总集数可能远大于已渲染数，
+                            // 导致初始只渲染7集时永远不触发加载（如30集时需 idx>=27 才加载，但最多只能滑到 idx=6）。
+                            // 正确逻辑：接近「已渲染末尾」(renderedSlides) 时就加载下一批。
+                            if (
+                                idx >= renderedSlides - 3 &&
+                                renderedSlides < episodeList.length
+                            ) {
+                                renderBatch(renderedSlides, 7);
+                            }
+                        },
+                    },
+                });
+
+                console.log("[DEBUG] Swiper created, rendering initial batch...");
+                renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
+                applyPlayerSettings();
+                var targetIdx = Math.min(
+                    playState.playEp || 0,
+                    episodeList.length - 1,
+                );
+                console.log("[DEBUG] sliding to targetIdx=" + targetIdx);
+                // 恢复播放到上次进度时，确保目标集已渲染（可能超过初始7集）
+                if (targetIdx >= renderedSlides) {
+                    ensureSlidesRendered(targetIdx);
+                }
+                if (targetIdx > 0) {
+                    verticalSwiper.slideTo(targetIdx, 0);
+                }
+                setTimeout(function () {
+                    activateActiveSlide();
+                    console.log("[DEBUG] autoplay activePlayer=", !!activePlayer);
+                    updateTopEpLabel();
+                    // 初始加载后上报一次历史，确保第一集也能记录（slideChange 可能不触发初始索引）
+                    if (
+                        window.pywebview &&
+                        window.pywebview.api &&
+                        window.pywebview.api.report_play_progress
+                    ) {
+                        var item = playState.currentItem || {};
+                        try {
+                            window.pywebview.api.report_play_progress(
+                                JSON.stringify(item),
+                                playState.playSrc || 0,
+                                verticalSwiper ? verticalSwiper.activeIndex : 0,
+                                0,
+                            );
+                        } catch (e) { }
+                    }
+                }, 400);
+            })
+            .catch(function (err) {
+                console.error("[DEBUG] loadState failed:", err);
+                document.getElementById("swiperWrapper").innerHTML =
+                    '<div class="swiper-slide u-flex u-items-center u-justify-center u-text-gray-500 u-text-sm">' +
+                    err.message +
+                    "</div>";
+                verticalSwiper = new Swiper(".verticalSwiper", {
+                    direction: "vertical",
+                });
+            });
+
+        // 关闭面板
+        document
+            .querySelector(".btn-close-right-panel-2")
+            .addEventListener("click", function () {
+                togglePanel(false);
+            });
+
+        // ==================== 自定义标题栏 + 边缘缩放（无边框播放窗口） ====================
+        // 拖拽/缩放统一由 window-chrome.js 经 pywebview 公共 API 驱动（稳定无抖动）；
+        // 边缘热区(.win-edge)由 window-chrome.js 自动绑定，这里只处理标题栏拖拽与双击最大化。
+        (function () {
+            var bar = document.getElementById("ppTopbar");
+            function onDown(e) {
+                if (e.target.closest("button")) return; // 按钮不触发拖拽
+                if (e.button !== 0) return;
+                if (window.WindowChrome) window.WindowChrome.titlebarMouseDown(e);
+            }
+            if (bar) {
+                bar.addEventListener("mousedown", onDown);
+                bar.addEventListener("dblclick", function (e) {
+                    if (e.target.closest("button")) return;
+                    if (window.WindowChrome) window.WindowChrome.toggleMaximize();
+                    else if (window.pywebview && window.pywebview.api)
+                        window.pywebview.api.toggle_maximize_window();
+                });
+            }
+        })();
+
+        // ==================== 键盘快捷键（像浏览器播放器一样） ====================
+        // 空格：播放/暂停；←/→：快退/快进 5s；F：原生全屏切换。
+        // 与 Swiper 的纵向键盘（↑/↓ 切集）不冲突（横向方向键空闲）。
+        // 直接读「当前可视 slide」里的 <video>，而非依赖全局 activePlayer：
+        //   activePlayer 在切集时由 activateActiveSlide 同步赋值，但 initPlayer 是 async
+        //   （内部 await 过滤 m3u8），播放器实例要等异步完成才进 playerMap。切到未预渲染
+        //   的集（跳集/懒加载）时，同步遍历拿不到新播放器 → activePlayer 残留上一集或置空，
+        //   导致空格误控上一集/隐藏分集。改用实时 DOM 查询即可彻底消除该竞态。
+        function getActiveSlideBox() {
+            if (!verticalSwiper) return null;
+            var slide = verticalSwiper.slides[verticalSwiper.activeIndex];
+            return slide ? slide.querySelector(".player-box") : null;
+        }
+        function getActiveVideo() {
+            var box = getActiveSlideBox();
+            return box ? box.querySelector("video") : null;
+        }
+        function getActivePlayer() {
+            var box = getActiveSlideBox();
+            return box ? playerMap.get(box) : null;
+        }
+        // 使用捕获阶段(true)监听键盘事件：XGPlayer 内部也监听空格键并可能 stopPropagation，
+        // 导致全局空格/方向键失效或控制了错误的播放器实例（预渲染的相邻集）。
+        // 捕获阶段先于冒泡执行，我们自己控制「当前可见 slide」的 video，并阻止事件继续传播。
+        document.addEventListener(
+            "keydown",
+            function (e) {
+                var t = e.target;
+                if (
+                    t &&
+                    (t.tagName === "INPUT" ||
+                        t.tagName === "TEXTAREA" ||
+                        t.isContentEditable)
+                )
+                    return;
+
+                // ESC：退出全屏（全屏时优先；非全屏时不拦截，让浏览器默认行为处理）
+                if (e.code === "Escape") {
+                    if (window.WindowChrome && window.WindowChrome.fullscreen) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.WindowChrome.toggleFullscreen();
+                        return;
+                    }
+                }
+
+                // 永远操作「当前可视 slide」里的视频——切集后即使上一分集仍在后台初始化，
+                // 也不会误控隐藏分集或上一集，空格/方向键/全屏只作用于当前可见画面。
+                var video = getActiveVideo();
+                if (!video) return;
+                if (e.code === "Space") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (video.paused) {
+                        video.play().catch(function () { });
+                    } else {
+                        video.pause();
+                    }
+                } else if (e.code === "ArrowLeft") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try {
+                        video.currentTime = Math.max(0, video.currentTime - 5);
+                    } catch (_) { }
+                } else if (e.code === "ArrowRight") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try {
+                        video.currentTime = (video.currentTime || 0) + 5;
+                    } catch (_) { }
+                } else if (e.key === "f" || e.key === "F") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    winFullscreenP();
+                }
+            },
+            true,
+        );
+
+        function winMinP() {
+            if (window.pywebview && window.pywebview.api)
+                window.pywebview.api.minimize_window();
+        }
+        function winMaxP() {
             if (window.WindowChrome) window.WindowChrome.toggleMaximize();
-            else if (window.pywebview && window.pywebview.api) window.pywebview.api.toggle_maximize_window();
-        });
-    }
-})();
-
-// ==================== 键盘快捷键（像浏览器播放器一样） ====================
-// 空格：播放/暂停；←/→：快退/快进 5s；F：原生全屏切换。
-// 与 Swiper 的纵向键盘（↑/↓ 切集）不冲突（横向方向键空闲）。
-// 直接读「当前可视 slide」里的 <video>，而非依赖全局 activePlayer：
-//   activePlayer 在切集时由 activateActiveSlide 同步赋值，但 initPlayer 是 async
-//   （内部 await 过滤 m3u8），播放器实例要等异步完成才进 playerMap。切到未预渲染
-//   的集（跳集/懒加载）时，同步遍历拿不到新播放器 → activePlayer 残留上一集或置空，
-//   导致空格误控上一集/隐藏分集。改用实时 DOM 查询即可彻底消除该竞态。
-function getActiveSlideBox() {
-    if (!verticalSwiper) return null;
-    var slide = verticalSwiper.slides[verticalSwiper.activeIndex];
-    return slide ? slide.querySelector('.player-box') : null;
-}
-function getActiveVideo() {
-    var box = getActiveSlideBox();
-    return box ? box.querySelector('video') : null;
-}
-function getActivePlayer() {
-    var box = getActiveSlideBox();
-    return box ? playerMap.get(box) : null;
-}
-// 使用捕获阶段(true)监听键盘事件：XGPlayer 内部也监听空格键并可能 stopPropagation，
-// 导致全局空格/方向键失效或控制了错误的播放器实例（预渲染的相邻集）。
-// 捕获阶段先于冒泡执行，我们自己控制「当前可见 slide」的 video，并阻止事件继续传播。
-document.addEventListener('keydown', function (e) {
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-
-    // ESC：退出全屏（全屏时优先；非全屏时不拦截，让浏览器默认行为处理）
-    if (e.code === 'Escape') {
-        if (window.WindowChrome && window.WindowChrome.fullscreen) {
-            e.preventDefault();
-            e.stopPropagation();
-            window.WindowChrome.toggleFullscreen();
-            return;
+            else if (window.pywebview && window.pywebview.api)
+                window.pywebview.api.toggle_maximize_window();
         }
-    }
+        function winCloseP() {
+            if (window.pywebview && window.pywebview.api)
+                window.pywebview.api.close_window();
+        }
+        function winFullscreenP() {
+            if (window.WindowChrome) window.WindowChrome.toggleFullscreen();
+            else if (
+                window.pywebview &&
+                window.pywebview.api &&
+                window.pywebview.api.toggle_fullscreen
+            )
+                window.pywebview.api.toggle_fullscreen();
+        }
 
-    // 永远操作「当前可视 slide」里的视频——切集后即使上一分集仍在后台初始化，
-    // 也不会误控隐藏分集或上一集，空格/方向键/全屏只作用于当前可见画面。
-    var video = getActiveVideo();
-    if (!video) return;
-    if (e.code === 'Space') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (video.paused) { video.play().catch(function () {}); } else { video.pause(); }
-    } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        e.stopPropagation();
-        try { video.currentTime = Math.max(0, video.currentTime - 5); } catch (_) {}
-    } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        e.stopPropagation();
-        try { video.currentTime = (video.currentTime || 0) + 5; } catch (_) {}
-    } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        e.stopPropagation();
-        winFullscreenP();
-    }
-}, true);
-
-function winMinP() { if (window.pywebview && window.pywebview.api) window.pywebview.api.minimize_window(); }
-function winMaxP() { if (window.WindowChrome) window.WindowChrome.toggleMaximize(); else if (window.pywebview && window.pywebview.api) window.pywebview.api.toggle_maximize_window(); }
-function winCloseP() { if (window.pywebview && window.pywebview.api) window.pywebview.api.close_window(); }
-function winFullscreenP() { if (window.WindowChrome) window.WindowChrome.toggleFullscreen(); else if (window.pywebview && window.pywebview.api && window.pywebview.api.toggle_fullscreen) window.pywebview.api.toggle_fullscreen(); }
-
-// 最大化/还原图标切换：最大化时显示「还原」图标（两个重叠矩形），正常时显示「最大化」图标（单矩形）
-function updateWinMaxIcon(maximized) {
-    var icon = document.getElementById('winMaxIcon');
-    if (!icon) return;
-    if (maximized) {
-        // 还原图标：两个重叠矩形
-        icon.innerHTML = '<path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h5A1.5 1.5 0 0 1 11 5.5v5A1.5 1.5 0 0 1 9.5 12h-5A1.5 1.5 0 0 1 3 10.5v-5z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 2.5A1.5 1.5 0 0 1 6.5 1h5A1.5 1.5 0 0 1 13 2.5v5A1.5 1.5 0 0 1 11.5 9H10V5.5A2.5 2.5 0 0 0 7.5 3H5V2.5z" fill="currentColor" stroke="currentColor" stroke-width="0.8"/>';
-    } else {
-        // 最大化图标：单矩形
-        icon.innerHTML = '<rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/>';
-    }
-}
-
-// 注册 WindowChrome 状态变化回调，同步最大化按钮图标
-if (window.WindowChrome) {
-    window.WindowChrome.onStateChange = function(state) {
-        updateWinMaxIcon(!!state.maximized);
-    };
-} else {
-    // WindowChrome 尚未加载时，等 load 事件后再注册
-    window.addEventListener('load', function() {
+        // 最大化/还原图标切换：最大化时显示「还原」图标（两个重叠矩形），正常时显示「最大化」图标（单矩形）
+        function updateWinMaxIcon(maximized) {
+            var icon = document.getElementById("winMaxIcon");
+            if (!icon) return;
+            if (maximized) {
+                // 还原图标：两个重叠矩形
+                icon.innerHTML =
+                    '<path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h5A1.5 1.5 0 0 1 11 5.5v5A1.5 1.5 0 0 1 9.5 12h-5A1.5 1.5 0 0 1 3 10.5v-5z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 2.5A1.5 1.5 0 0 1 6.5 1h5A1.5 1.5 0 0 1 13 2.5v5A1.5 1.5 0 0 1 11.5 9H10V5.5A2.5 2.5 0 0 0 7.5 3H5V2.5z" fill="currentColor" stroke="currentColor" stroke-width="0.8"/>';
+            } else {
+                // 最大化图标：单矩形
+                icon.innerHTML =
+                    '<rect x="2" y="2" width="9" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.5"/>';
+            }
+        }
+        // 注册 WindowChrome 状态变化回调，同步最大化按钮图标
         if (window.WindowChrome) {
-            window.WindowChrome.onStateChange = function(state) {
+            window.WindowChrome.onStateChange = function (state) {
                 updateWinMaxIcon(!!state.maximized);
             };
+        } else {
+            // WindowChrome 尚未加载时，等 load 事件后再注册
+            window.addEventListener("load", function () {
+                if (window.WindowChrome) {
+                    window.WindowChrome.onStateChange = function (state) {
+                        updateWinMaxIcon(!!state.maximized);
+                    };
+                }
+            });
         }
-    });
-}
-
-</script>
-  <script src="/static/js/window-chrome.js"></script>
-
-  <!-- 无边框窗口：边缘缩放热区（仅窗口最外缘 6px，由 window-chrome.js 经 pywebview API 缩放）。样式见下方 <style> -->
-
-  <div class="win-edge win-edge-n" data-hit="12"></div>
-  <div class="win-edge win-edge-s" data-hit="15"></div>
-  <div class="win-edge win-edge-w" data-hit="10"></div>
-  <div class="win-edge win-edge-e" data-hit="11"></div>
-  <div class="win-edge win-edge-nw" data-hit="13"></div>
-  <div class="win-edge win-edge-ne" data-hit="14"></div>
-  <div class="win-edge win-edge-sw" data-hit="16"></div>
-  <div class="win-edge win-edge-se" data-hit="17"></div>
+    </script>
+    <script src="/static/js/window-chrome.js"></script>
+    <!-- 无边框窗口：边缘缩放热区（仅窗口最外缘 6px，由 window-chrome.js 经 pywebview API 缩放）。样式见下方 <style> -->
+    <div class="win-edge win-edge-n" data-hit="12"></div>
+    <div class="win-edge win-edge-s" data-hit="15"></div>
+    <div class="win-edge win-edge-w" data-hit="10"></div>
+    <div class="win-edge win-edge-e" data-hit="11"></div>
+    <div class="win-edge win-edge-nw" data-hit="13"></div>
+    <div class="win-edge win-edge-ne" data-hit="14"></div>
+    <div class="win-edge win-edge-sw" data-hit="16"></div>
+    <div class="win-edge win-edge-se" data-hit="17"></div>
 </body>
 </html>
