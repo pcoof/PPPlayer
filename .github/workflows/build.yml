@@ -78,36 +78,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup uv
-        if: hashFiles('pyproject.toml') != ''
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: latest
-          python-version: "3.13"
-
       - name: Setup Git identity
         run: |
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
           git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
 
-      - name: Update pyproject.toml version (uv run python NO pip)
+      # 纯标准库实现：无需 tomli_w / 无需同步项目依赖（避免无谓的 nuitka 等重型构建）
+      - name: Update pyproject.toml version
         if: hashFiles('pyproject.toml') != ''
         run: |
-          uv run python - <<EOF
-          import tomllib
-          import tomli_w
-          with open("pyproject.toml","rb") as f:
-              data = tomllib.load(f)
-          data["project"]["version"] = "${{ env.FULL_VER }}"
-          with open("pyproject.toml","wb") as f:
-              tomli_w.dump(data, f)
-          EOF
+          python3 - <<'PY'
+          import re
+          p = "pyproject.toml"
+          s = open(p, encoding="utf-8").read()
+          s = re.sub(r'(?m)^version\s*=\s*["\'][^"\']*["\']', 'version = "${{ env.FULL_VER }}"', s, count=1)
+          open(p, "w", encoding="utf-8").write(s)
+          PY
 
       - name: Sync main.py __version__
         if: hashFiles('main.py') != ''
         run: |
-          uv run python - <<'PY'
+          python3 - <<'PY'
           import re
           p = "main.py"
           s = open(p, encoding="utf-8").read()
