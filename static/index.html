@@ -296,6 +296,7 @@
       <button @click="settingsTab='layout'" class="ts-tab" :class="settingsTab==='layout'?'is-active':''">布局</button>
       <button @click="settingsTab='sources'" class="ts-tab" :class="settingsTab==='sources'?'is-active':''">API源</button>
       <button @click="settingsTab='data'" class="ts-tab" :class="settingsTab==='data'?'is-active':''">数据</button>
+      <button @click="settingsTab='about'" class="ts-tab" :class="settingsTab==='about'?'is-active':''">关于</button>
     </div>
     <div class="u-grow u-overflow-y-auto u-px-5 ts-scroll">
       <!-- 基础 -->
@@ -449,6 +450,43 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- 关于 -->
+      <div x-show="settingsTab==='about'" x-cloak>
+        <div class="u-pt-5">
+          <div class="ts-about-head">
+            <img src="/static/thumb.svg" class="ts-about-logo" alt="TSPlayer">
+            <div class="u-min-w-0">
+              <h3 class="ts-about-title">TSPlayer</h3>
+              <p class="ts-hint">聚合播放器桌面应用 · pywebview + Flask + XGPlayer</p>
+            </div>
+          </div>
+          <p class="ts-hint u-mt-3">TSPlayer 是一款开源的竖屏视频聚合播放桌面应用，支持多 CMS 影视源、瀑布流卡片墙、收藏 / 历史、智能去广告与多种主题风格，所有数据均保存在本地。</p>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">版本信息</label>
+          <div class="ts-info-note">
+            <svg class="u-w-5 u-h-5 u-text-accent u-shrink-0 u-mt-0-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+            <div>
+              <p class="ts-info-note-t">当前版本 <span x-text="appVersion || '—'"></span></p>
+              <p class="d">新版本通过 GitHub Release 发布，版本号格式为 YYYYMMDD.N（同日多次发布序号自增）。</p>
+            </div>
+          </div>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">连接与更新</label>
+          <div class="ts-seg">
+            <button @click="openExternal(repoUrl)" class="ts-ghost-btn" :disabled="!repoUrl">项目主页</button>
+            <button @click="openExternal(releasesUrl)" class="ts-ghost-btn" :disabled="!releasesUrl">更新日志 / 下载</button>
+            <button @click="checkAppUpdate()" class="ts-ghost-btn" :disabled="updateChecking"><span x-show="!updateChecking">检查更新</span><span x-show="updateChecking">检查中…</span></button>
+          </div>
+          <p class="ts-hint u-mt-2" x-show="updateMsg" x-text="updateMsg"></p>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">开源协议</label>
+          <p class="ts-hint">本项目以 MIT 协议开源，仅供学习交流使用；请勿用于任何商业或侵权行为。</p>
+        </div>
+        <div class="u-aspect-2-3"><a href="https://github.com/search?q=provide%2Fvod&type=code">可以在github查找api接口</div>
       </div>
     </div>
   </div>

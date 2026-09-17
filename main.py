@@ -81,6 +81,11 @@ def ui_invoke(window, fn):
 def run_flask():
     """在独立线程中启动 Flask 服务器"""
     app = create_app()
+    # 把版本与仓库信息注入 app.config，供 /api/version 暴露给前端「关于」页
+    app.config['APP_VERSION'] = __version__
+    app.config['GITHUB_REPO'] = GITHUB_REPO
+    app.config['GITHUB_REPO_URL'] = GITHUB_REPO_URL
+    app.config['GITHUB_RELEASES_URL'] = GITHUB_RELEASES_URL
     import logging
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.WARNING)
@@ -106,6 +111,17 @@ class PlayerWindow:
         self._main_window = main_window
         self.bosskey = None       # BossKeyManager（老板键全局热键）
         self.tray = None          # TrayManager（系统托盘）
+
+    # —— 关于页桥接：转交系统托盘（TrayManager 持有真实实现）——
+    def check_update(self, show_no_update=True):
+        """前端「关于」页「检查更新」按钮：转交托盘更新检查逻辑。"""
+        if self.tray:
+            self.tray.check_update(show_no_update=bool(show_no_update))
+
+    def _open_url(self, url):
+        """前端「关于」页外链：转交托盘的浏览器打开逻辑。"""
+        if self.tray:
+            self.tray._open_url(str(url))
 
     def _run_on_ui(self, func, *args, **kwargs):
         """调用 pywebview 自带的窗口方法（show / hide / restore / destroy …）。
@@ -831,6 +847,17 @@ class JsApi:
 
     def attach(self, window):
         self._w = window
+
+    # —— 外部链接 / 更新 ——
+    def open_external(self, url):
+        """在系统默认浏览器中打开外部链接（关于页的项目主页 / 更新日志等）。"""
+        if url and self.manager:
+            self.manager._open_url(str(url))
+
+    def check_update(self, show_no_update=True):
+        """前端「关于」页「检查更新」按钮：复用 AppManager 的更新检查逻辑。"""
+        if self.manager:
+            self.manager.check_update(show_no_update=bool(show_no_update))
 
     # —— 拖拽 / 缩放（Python 端完成坐标运算）——
     def drag_start(self, sx, sy):

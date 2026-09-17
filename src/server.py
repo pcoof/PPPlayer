@@ -443,6 +443,17 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/version")
+    def api_version():
+        """返回应用版本与 GitHub 仓库信息，供「关于」页展示（值由 main.py 在启动时注入 app.config）。"""
+        return jsonify({
+            "version": app.config.get("APP_VERSION", "unknown"),
+            "app": "TSPlayer",
+            "repo": app.config.get("GITHUB_REPO", ""),
+            "repo_url": app.config.get("GITHUB_REPO_URL", ""),
+            "releases_url": app.config.get("GITHUB_RELEASES_URL", ""),
+        })
+
     # ── 静态文件（兜底） ─────────────────────────────────────
     @app.route("/static/<path:filename>")
     def static_files(filename: str):

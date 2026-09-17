@@ -37,6 +37,11 @@ function app() {
         catCtxY: 0,
         catCtxTitle: '',
         settingsTab: 'basic',
+        appVersion: '',
+        repoUrl: '',
+        releasesUrl: '',
+        updateChecking: false,
+        updateMsg: '',
         bossKeyListening: false,
         themeList: [
             { id: 'default', name: '主题风格', swatch: 'background:linear-gradient(135deg,#f6f3ec 0 50%,#b0823c 50% 100%)' },
@@ -144,6 +149,44 @@ function app() {
             // 暴露组件实例，供播放窗口「编辑 API 源」回调唤起本窗口设置中心
             window.__app = this;
             this.applyBossKey();
+            // 拉取版本与仓库信息，供「关于」页展示
+            this.fetchVersion();
+        },
+
+        // ── 关于页：版本信息 + 外部链接 / 更新检查 ──
+        async fetchVersion() {
+            try {
+                const resp = await fetch('/api/version');
+                if (!resp.ok) return;
+                const d = await resp.json();
+                this.appVersion = d.version || '';
+                this.repoUrl = d.repo_url || '';
+                this.releasesUrl = d.releases_url || '';
+            } catch (e) { /* 非致命：关于页信息留空即可 */ }
+        },
+        openExternal(url) {
+            if (!url) return;
+            // 优先走 pywebview 桥接（在系统浏览器打开，避免应用内 WebView 被导航走）
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external) {
+                try { window.pywebview.api.open_external(url); return; } catch (e) {}
+            }
+            window.open(url, '_blank');
+        },
+        checkAppUpdate() {
+            if (this.updateChecking) return;
+            this.updateChecking = true;
+            this.updateMsg = '正在检查更新…';
+            const done = () => { this.updateChecking = false; };
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.check_update) {
+                try {
+                    window.pywebview.api.check_update(true);
+                    // 后端会弹气泡 / 托盘菜单提示；前端给个兜底反馈
+                    setTimeout(() => { if (this.updateChecking) { this.updateMsg = '已触发更新检查，请查看系统托盘提示。'; done(); } }, 1500);
+                    return;
+                } catch (e) {}
+            }
+            this.updateMsg = '当前环境不支持检查更新（请到项目主页查看）。';
+            done();
         },
 
         // ── 老板键：捕获组合键 + 注册全局热键 ──
