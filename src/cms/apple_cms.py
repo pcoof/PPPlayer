@@ -1,10 +1,11 @@
 """苹果 CMS (JSON API) 适配器"""
 
 from typing import Any
+from urllib.parse import urlparse
 
-from .base import BaseCMS
-from .endpoint import resolve_endpoint
-from .http import cms_session
+from .base import BaseCMS, CMSNoSearchError, looks_like_no_search
+from .endpoint import resolve_endpoint, merge_query
+from .http import cms_session, cms_get
 
 
 class AppleCMS(BaseCMS):
@@ -15,16 +16,25 @@ class AppleCMS(BaseCMS):
 
         端点由 resolve_endpoint() 决定：站点根才补 /api.php/provide/vod/，
         已是完整端点（json.html / json.php / provide/vod 等）则原样使用。
+        动作参数用 merge_query 合并（剔除源地址自带的 ac/pg 等，避免重复键），
+        并带同源 Referer 以降低部分源站的防盗链 403。
         """
-        url = resolve_endpoint(self.base_url)
-        resp = cms_session.get(
+        url = merge_query(resolve_endpoint(self.base_url), params)
+        origin = "{0.scheme}://{0.netloc}".format(urlparse(self.base_url))
+        resp = cms_get(
             url,
-            params=params,
-            headers={"Accept": "application/json, text/json, */*"},
+            headers={"Accept": "application/json, text/json, */*", "Referer": origin + "/"},
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json()
+        text = (resp.text or "").strip()
+        try:
+            return resp.json()
+        except ValueError:
+            # 非 JSON：可能是源站明确返回的「不支持搜索」纯文本提示
+            if looks_like_no_search(text):
+                raise CMSNoSearchError(text or "该 API 源明确返回不支持搜索")
+            raise
 
     def fetch_classes(self) -> list[dict[str, Any]]:
         data = self._request({})

@@ -4,6 +4,39 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+class CMSNoSearchError(Exception):
+    """源站明确返回「不支持搜索」类提示（HTTP 200 但 body 为纯文本提示而非 JSON/XML）。
+
+    例如苹果 CMS 在搜索接口未开启时返回纯文本「暂不支持搜索」。此时不应当成
+    JSON/XML 解析失败，而应视为「该源不支持搜索」，供检测功能关闭搜索开关、
+    搜索时给出友好提示。
+    """
+
+
+# 源站「不支持搜索」类响应的特征串（命中即视为不支持搜索）
+_NO_SEARCH_MARKERS = (
+    "不支持搜索",
+    "暂不支持搜索",
+    "暂不支持",
+    "未开放搜索",
+    "未开启搜索",
+    "禁止搜索",
+    "搜索功能",
+    "search not",
+    "not support",
+    "no search",
+    "search disabled",
+)
+
+
+def looks_like_no_search(text: str) -> bool:
+    """粗判一段响应文本是否为「源站不支持搜索」的提示。"""
+    if not text:
+        return False
+    low = text.lower()
+    return any(m in low for m in _NO_SEARCH_MARKERS)
+
+
 class BaseCMS(ABC):
     """CMS API 基类，定义统一接口。"""
 

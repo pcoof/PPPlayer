@@ -15,8 +15,13 @@ const API = {
     async getVideos(sourceUrl, params = {}) {
         const qs = new URLSearchParams({ source: sourceUrl, ...params });
         const resp = await fetch('/api/cms/videos?' + qs.toString());
-        if (!resp.ok) throw new Error(`Videos error: ${resp.status}`);
-        return resp.json();
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            // 后端已返回结构化中文错误（含「接口本身不支持搜索」等），直接透传
+            const msg = (data && (data.error || data.message)) || `请求失败（HTTP ${resp.status}）`;
+            throw new Error(msg);
+        }
+        return data;
     },
 
     /** 获取视频详情 */

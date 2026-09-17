@@ -221,6 +221,10 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-seg button.is-active { color: var(--accent-strong); background: var(--accent-soft); }
 .ts-label { font-size: 13px; font-weight: 500; color: var(--ink-2); }
 .ts-hint { font-size: 11.5px; color: var(--ink-3); }
+
+/* 搜索/加载失败的内联提示横幅（如 403、接口不支持搜索） */
+.ts-banner { padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; margin: 10px 12px; }
+.ts-banner--error { color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 .ts-field { width: 100%; padding: 10px 12px; font-size: 13px; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-btn); box-shadow: var(--shadow-sm); outline: none; transition: border-color .2s, box-shadow .2s; }
 .ts-field:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--ring); }
 .ts-select { width: 100%; padding: 9px 11px; font-size: 13px; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-btn); box-shadow: var(--shadow-sm); outline: none; transition: border-color .2s, box-shadow .2s; }
@@ -231,6 +235,10 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .25s var(--ease); }
 .ts-switch.on { background: var(--accent); }
 .ts-switch.on::after { transform: translateX(16px); }
+.ts-src-badge { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; font-size:11px; line-height:1.7; background:rgba(22,160,133,.14); color:#138a6b; vertical-align:middle; }
+.ts-src-badge.off { background:rgba(148,163,184,.20); color:#8a94a6; }
+.ts-search-input:disabled, .ts-search-btn:disabled { opacity:.55; cursor:not-allowed; }
+.ts-search-btn:disabled { pointer-events:none; }
 .ts-label--checkbox, .ts-label--radio { position: relative; margin: .5rem; font-family: Arial, sans-serif; line-height: 135%; cursor: pointer; font-size: small; }
 .ts-checkbox { position: relative; top: -0.375rem; margin: 0 1rem 0 0; cursor: pointer; }
 .ts-checkbox:before { -webkit-transition: -webkit-transform 0.4s cubic-bezier(0.45, 1.8, 0.5, 0.75); -moz-transition: -moz-transform 0.4s cubic-bezier(0.45, 1.8, 0.5, 0.75); transition: transform 0.4s cubic-bezier(0.45, 1.8, 0.5, 0.75); -webkit-transform: rotate(-45deg) scale(0, 0); -moz-transform: rotate(-45deg) scale(0, 0); -ms-transform: rotate(-45deg) scale(0, 0); -o-transform: rotate(-45deg) scale(0, 0); transform: rotate(-45deg) scale(0, 0); content: ""; position: absolute; left: 0rem; top: 0.225rem; z-index: 1; width: 1.4rem; height: 0.6rem; border: 4px solid var(--accent); border-top-style: none; border-right-style: none; }
@@ -245,6 +253,9 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-src:hover { border-color: var(--line-strong); }
 .ts-src-name { font-size: 13.5px; font-weight: 500; color: var(--ink); }
 .ts-src-url { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-src-msg { font-size: 11px; color: var(--ink-3); margin-top: 2px; line-height: 1.4; }
+.ts-src-msg.is-error { color: var(--danger); }
+.ts-src-msg.is-checking { color: var(--warn); }
 .ts-status-dot { font-size: 10px; line-height: 1; margin-right: 0.25rem }
 
 /* 源连接状态：语义化状态色（替代 text-green/text-red 等零散工具类） */

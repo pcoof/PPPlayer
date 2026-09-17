@@ -1,11 +1,12 @@
 """飞飞 CMS (XML API) 适配器"""
 
 from typing import Any
+from urllib.parse import urlparse
 
 from lxml import etree
-from .base import BaseCMS
-from .endpoint import resolve_endpoint
-from .http import cms_session
+from .base import BaseCMS, CMSNoSearchError, looks_like_no_search
+from .endpoint import resolve_endpoint, merge_query
+from .http import cms_session, cms_get
 
 
 class FeifeiCMS(BaseCMS):
@@ -16,18 +17,23 @@ class FeifeiCMS(BaseCMS):
 
         端点由 resolve_endpoint() 决定：已是完整端点（/at/xml、/api/xml.php 等）
         则原样使用；仅当 resolve 判定为站点根（补了标准路径）时，才改用 /xml/。
+        动作参数用 merge_query 合并（剔除源地址自带的 ac/pg 等，避免重复键），
+        并带同源 Referer 以降低部分源站的防盗链 403。
         """
         base = self.base_url.rstrip("/")
         ep = resolve_endpoint(base)
-        xml_url = ep if ep == base else (base + "/xml/")
-        resp = cms_session.get(
+        xml_url = merge_query(ep if ep == base else (base + "/xml/"), params)
+        origin = "{0.scheme}://{0.netloc}".format(urlparse(base))
+        resp = cms_get(
             xml_url,
-            params=params,
-            headers={"Accept": "application/xml, text/xml, */*"},
+            headers={"Accept": "application/xml, text/xml, */*", "Referer": origin + "/"},
             timeout=30,
         )
         resp.raise_for_status()
-        text = resp.text
+        text = (resp.text or "").strip()
+        # 源站可能直接返回「不支持搜索」纯文本（非 XML），先识别这种情形
+        if looks_like_no_search(text):
+            raise CMSNoSearchError(text or "该 API 源明确返回不支持搜索")
         # 处理可能的 BOM
         if text.startswith("\ufeff"):
             text = text[1:]

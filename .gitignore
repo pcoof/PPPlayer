@@ -14,3 +14,4 @@ Skills.md
 *.pyc
 /.workbuddy
 installer.iss
+tsplayer-pywebview.spec

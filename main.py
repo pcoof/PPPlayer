@@ -565,11 +565,43 @@ class TrayManager:
         def _run():
             try:
                 import requests
-                resp = requests.get(
-                    GITHUB_API_LATEST,
-                    timeout=10,
-                    headers={"Accept": "application/vnd.github+json"},
-                )
+                from requests.exceptions import SSLError, RequestException
+                from requests.adapters import HTTPAdapter
+                import ssl
+
+                class _SystemCertAdapter(HTTPAdapter):
+                    """证书校验兜底：改用系统根证书存储（Windows 系统 ROOT 存储，
+                    含公司代理自签根 CA）。仅用于只读查询最新版本号；实际下载仍由
+                    用户浏览器完成，故此处放宽到系统信任链是安全可接受的。"""
+
+                    def init_poolmanager(self, *args, **kwargs):
+                        kwargs["ssl_context"] = ssl.create_default_context()
+                        return super().init_poolmanager(*args, **kwargs)
+
+                def _fetch():
+                    # 绕开系统代理/VPN/爬虫工具注入的代理，直连 GitHub（代理只影响浏览器）。
+                    no_proxy = {"http": None, "https": None}
+                    # 1) 默认走 certifi 自带 CA 包
+                    try:
+                        return requests.get(
+                            GITHUB_API_LATEST,
+                            timeout=10,
+                            headers={"Accept": "application/vnd.github+json"},
+                            proxies=no_proxy,
+                        )
+                    except SSLError:
+                        # 2) 证书校验失败：多为 uv 环境缺 CA 包 / 公司代理重签证书，
+                        #    退回系统根证书存储再试一次（仍不走系统代理）。
+                        s = requests.Session()
+                        s.proxies = no_proxy
+                        s.mount("https://", _SystemCertAdapter())
+                        return s.get(
+                            GITHUB_API_LATEST,
+                            timeout=10,
+                            headers={"Accept": "application/vnd.github+json"},
+                        )
+
+                resp = _fetch()
                 if resp.status_code != 200:
                     return
                 data = resp.json()
@@ -591,6 +623,10 @@ class TrayManager:
                 self._latest_update = {"version": tag.lstrip("vV"), "url": url}
                 self._toast("TSPlayer", f"发现新版本 {tag.lstrip('vV')}，点击菜单下载", "info")
                 self._add_update_menu_item(tag.lstrip("vV"), url)
+            except SSLError as e:
+                print(f"[Update] 跳过更新检查（证书校验失败，可忽略）：{e}")
+            except RequestException as e:
+                print(f"[Update] 跳过更新检查（网络不可达，可忽略）：{e}")
             except Exception as e:
                 print(f"[Update] check failed: {e}")
 

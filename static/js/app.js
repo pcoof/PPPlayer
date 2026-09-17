@@ -64,6 +64,7 @@ function app() {
         playerHover: false,
         showPlayerSidebar: true,
         loading: false,
+        searchError: '',     // 搜索/加载失败时展示的友好错误（如 403、接口不支持搜索）
         sourceClassesFetched: [],
         sourceClassesLoading: false,
         _currentPlayUrl: '',
@@ -83,7 +84,7 @@ function app() {
 
             this.sources = Array.isArray(saved.cms_src) ? saved.cms_src : [];
             // 确保每个 source 有默认 listLayout 和运行时 _status 字段
-            this.sources = this.sources.map(s => ({ listLayout: 'poster', _status: 'unchecked', _statusCode: null, ...s }));
+            this.sources = this.sources.map(s => ({ listLayout: 'poster', supportSearch: true, _status: 'unchecked', _statusCode: null, _checkMsg: '', _searchNote: '', ...s }));
             this.cfg = Object.assign({}, defCfg, saved.cms_cfg || {});
             this.cfg.cardTags = Object.assign({}, defCfg.cardTags, (saved.cms_cfg && saved.cms_cfg.cardTags) || (this.cfg.cardTags || {}));
             this.fav = Array.isArray(saved.cms_fav) ? saved.cms_fav : [];
@@ -389,6 +390,11 @@ function app() {
 
         getActiveSource() { return this.sources.find(s => s.enabled); },
 
+        // 某源是否支持搜索（缺省视为支持，兼容旧数据缺失该字段的情况）
+        sourceSupportsSearch(s) { return !!s && s.supportSearch !== false; },
+        get activeSourceName() { const s = this.getActiveSource(); return s ? s.name : ''; },
+        get activeSearchDisabled() { return !this.sourceSupportsSearch(this.getActiveSource()); },
+
         // ── 海报布局 ── 每个源独立存储
         currentListLayout() {
             const src = this.getActiveSource();
@@ -526,10 +532,15 @@ function app() {
         async loadData(loadMore = false) {
             const activeSource = this.getActiveSource();
             if (!activeSource) { this.videos = []; this.totalPages = 1; this.hasMore = false; return; }
+            // 激活源不支持搜索时，强制按分类列表加载，避免误调用搜索接口
+            if (this.searchWd && activeSource.supportSearch === false) this.searchWd = '';
             if (!loadMore) this.scrollWallToTop();
             this.loading = true;
+            this.searchError = '';
             try {
-                const params = { ac: this.searchWd ? 'search' : 'videolist', pg: this.page };
+                // 搜索场景优先用 ac=videolist（返回完整数据，含海报/播放地址，且苹果 CMS 普遍支持）；
+                // ac=search 仅返回精简数据、缺少播放字段，不适合直接播放，故不采用。
+                const params = { ac: 'videolist', pg: this.page };
                 if (this.currentType !== '0') params.t = this.currentType;
                 if (this.searchWd) params.wd = this.searchWd;
                 const d = await API.getVideos(activeSource.url, params);
@@ -551,6 +562,10 @@ function app() {
                 } else {
                     this.videos = list;
                 }
+                // 搜索无结果：可能是真无匹配，也可能是该源接口本身不支持搜索（忽略 wd）
+                if (this.searchWd && pageItems === 0) {
+                    this.searchError = '未找到与「' + this.searchWd + '」相关的结果（也可能是该 API 源接口本身不支持搜索）。';
+                }
                 // 推断是否还有更多页：
                 // 1) 本页为空 → 无更多；2) 后端真实 pagecount 且 > 当前页 → 有；3) 后端明确末页 → 无；
                 // 4) pagecount 缺失/不可信 → 以「本页有返回」乐观续载，遇到空页才停（很多定制 CMS 不返回 pagecount，
@@ -569,6 +584,7 @@ function app() {
                 }
             } catch (e) {
                 console.warn('loadData error:', e);
+                this.searchError = (e && e.message) || '加载失败，请稍后重试。';
                 if (!loadMore) { this.videos = []; this.totalPages = 1; }
                 this.hasMore = false;
             } finally {
@@ -701,6 +717,7 @@ function app() {
         },
 
         doSearch() {
+            if (this.activeSearchDisabled) return; // 当前激活源不支持搜索：跳过请求（界面已隐藏搜索框并给出提示）
             if (!this.searchWd.trim()) return;
             this.searchHistory = this.searchHistory.filter(t => t !== this.searchWd);
             this.searchHistory.unshift(this.searchWd);
@@ -794,7 +811,7 @@ function app() {
 
         addSource() {
             this.editingIdx = null;
-            this.editingSource = { name: '', url: '', skipIntro: false, introTime: 0, skipOutro: false, outroTime: 0, blacklist: '', listLayout: 'poster' };
+            this.editingSource = { name: '', url: '', supportSearch: true, skipIntro: false, introTime: 0, skipOutro: false, outroTime: 0, blacklist: '', listLayout: 'poster' };
             this.sourceClassesFetched = [];
             this.sourceClassesLoading = false;
             this.showSourceBlacklistPicker = false;
@@ -803,7 +820,7 @@ function app() {
 
         editSource(i) {
             this.editingIdx = i;
-            this.editingSource = { skipIntro: false, introTime: 0, skipOutro: false, outroTime: 0, blacklist: '', listLayout: 'poster', ...this.sources[i] };
+            this.editingSource = { supportSearch: true, skipIntro: false, introTime: 0, skipOutro: false, outroTime: 0, blacklist: '', listLayout: 'poster', ...this.sources[i] };
             this.sourceClassesFetched = [];
             this.sourceClassesLoading = false;
             this.showSourceBlacklistPicker = true; // 编辑时自动展开
@@ -914,7 +931,7 @@ function app() {
                         this.sources = this.sources.concat(data.map(s => ({
                             id: s.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
                             name: s.name || '未命名源', url: s.url || '',
-                            enabled: false, listLayout: 'poster', _status: 'unchecked', _statusCode: null,
+                            enabled: false, listLayout: 'poster', supportSearch: true, _status: 'unchecked', _statusCode: null,
                             ...s
                         })).filter(s => s.url));
                         this.normalizeSourceEnabled(); this.saveSources();
@@ -942,7 +959,7 @@ function app() {
                         this.sources = d.cms_src.map(s => ({
                             id: s.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
                             name: s.name || '未命名源', url: s.url || '',
-                            enabled: false, listLayout: 'poster', _status: 'unchecked', _statusCode: null,
+                            enabled: false, listLayout: 'poster', supportSearch: true, _status: 'unchecked', _statusCode: null,
                             ...s
                         })).filter(s => s.url);
                         this.normalizeSourceEnabled(); this.saveSources();
@@ -958,18 +975,36 @@ function app() {
             reader.readAsText(file); e.target.value = '';
         },
 
-        // ── API源连接检测 ──
+        // ── API源连接检测（连搜索一起检测，自动判断搜索开关）──
         async checkSourceStatus(index) {
             const src = this.sources[index];
             if (!src || !src.url) return;
             src._status = 'checking';
+            src._checkMsg = '检测中…';
+            src._searchNote = '';
             try {
                 const result = await API.checkSource(src.url);
-                src._status = result.status === 'ok' ? 'ok' : 'error';
-                src._statusCode = result.code;
+                if (result.status === 'ok') {
+                    src._status = 'ok';
+                    src._statusCode = 200;
+                    // 后端明确返回 true/false 时才自动覆盖本地搜索开关；null(未知) 不改动
+                    if (result.support_search === true || result.support_search === false) {
+                        src.supportSearch = result.support_search;
+                        this.saveSources();
+                    }
+                    if (result.support_search === true) src._checkMsg = '连通正常 · 支持搜索';
+                    else if (result.support_search === false) src._checkMsg = '连通正常 · 不支持搜索（已自动关闭）';
+                    else src._checkMsg = '连通正常 · 搜索状态未判定';
+                    if (result.search_note) src._searchNote = result.search_note;
+                } else {
+                    src._status = 'error';
+                    src._statusCode = result.code;
+                    src._checkMsg = result.message || '连接失败';
+                }
             } catch (e) {
                 src._status = 'error';
                 src._statusCode = 0;
+                src._checkMsg = '检测异常：' + (e && e.message ? e.message : e);
             }
         },
 

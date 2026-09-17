@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
-from .http import cms_session
+from .http import cms_session, cms_get
 
 # 看起来是「完整 API 端点」的文件后缀
 _ENDPOINT_EXT = re.compile(r"\.(php|html|htm|json|xml|asp|aspx|jsp)$", re.I)
@@ -49,12 +50,50 @@ def resolve_endpoint(base_url: str) -> str:
     return base + "/api.php/provide/vod/"
 
 
+# 我们控制、需在源地址已有查询里覆盖（避免重复 ac/pg 等）的键
+_OVERRIDE_KEYS = ("ac", "pg", "t", "wd", "ids", "h", "type", "wd", "page")
+
+
+def merge_query(base_url: str, params: dict) -> str:
+    """把动作参数合并进源地址，保证 ac/pg/t/wd 等由我们唯一决定。
+
+    解决的问题：
+    - 用户填的源地址若已含查询（如 `...?ac=videolist`），直接 requests(params=) 会
+      产生 `ac=videolist&ac=search` 这种重复键，服务端取错值 → 搜索被当成列表（返回完整数据）。
+    - 按源地址是否已含 `?` 正确选用 `?` / `&` 拼接（交给 urlencode 处理）。
+    - **容错**：很多 CMS 演示站给的分享链接把 `?` 误写成 `&`（如
+      `.../provide/vod&ac=videolist&pg=1`）。若整串没有 `?` 却含 `&`，把第一个 `&`
+      当作查询起始符改成 `?`，否则会拼出 `/vod&ac=...` 这种路径，被 PHP 框架
+      判为「方法不存在」。
+    做法：先剔除源地址里与我们同名的键，再合并我们的参数，绝不产生重复 ac。
+    """
+    raw = (base_url or "").strip()
+    # 容错：无 ? 但含 & → 首个 & 当作查询起始符（修复演示站误写的 &）
+    if "?" not in raw and "&" in raw:
+        raw = raw.replace("&", "?", 1)
+    p = urlparse(raw)
+    # 去掉路径末尾多余的斜杠：避免生成 `.../vod/?ac=` 这种与已知可用
+    # `.../vod?ac=` 不一致的形态（部分 PHP 框架对 `/vod` 与 `/vod/` 路由区分，
+    # 后者可能命中「方法不存在」）。仅当无查询串时才处理，避免误伤带 ? 的地址。
+    if not p.query and p.path.endswith("/") and p.path != "/":
+        p = p._replace(path=p.path[:-1])
+    q = dict(parse_qsl(p.query, keep_blank_values=True))
+    for k in _OVERRIDE_KEYS:
+        q.pop(k, None)
+    for k, v in params.items():
+        if v in ("", None):
+            continue
+        q[k] = v
+    return urlunparse(p._replace(query=urlencode(q, doseq=True)))
+
+
+
 def _probe_format(endpoint: str) -> str | None:
     """探测单个端点的返回格式：'json' / 'xml' / None（无法判断）。"""
     try:
-        resp = cms_session.get(
-            endpoint,
-            params={"ac": "videolist", "pg": 1},
+        url = merge_query(endpoint, {"ac": "videolist", "pg": 1})
+        resp = cms_get(
+            url,
             headers={"Accept": "application/json, text/xml, */*"},
             timeout=12,
         )

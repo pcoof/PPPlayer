@@ -34,12 +34,12 @@
           </div>
         </template>
       </div>
-      <div class="ts-search-wrap">
+      <div class="ts-search-wrap" x-show="!activeSearchDisabled" x-cloak>
         <div class="ts-search u-relative u-flex u-items-center u-pl-4 u-pr-1-5 u-py-1">
           <svg class="u-w-18 u-h-18 u-text-ink-3 u-shrink-0" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input type="text" x-model="searchWd" @keydown.enter="doSearch()" @focus="showSearchHist=true" @blur="setTimeout(()=>showSearchHist=false,200)" placeholder="搜索影片、剧集、演员…" class="ts-search-input u-grow u-px-3 u-bg-transparent u-border-0 u-outline-none u-text-sm">
-          <button @click="doSearch()" class="ts-search-btn u-shrink-0">搜索</button>
+          <input type="text" x-model="searchWd" @keydown.enter="doSearch()" @focus="showSearchHist=true" @blur="setTimeout(()=>showSearchHist=false,200)" :disabled="activeSearchDisabled" :placeholder="activeSearchDisabled ? ('当前源「'+activeSourceName+'」不支持搜索') : '搜索影片、剧集、演员…'" class="ts-search-input u-grow u-px-3 u-bg-transparent u-border-0 u-outline-none u-text-sm">
+          <button @click="doSearch()" :disabled="activeSearchDisabled" class="ts-search-btn u-shrink-0">搜索</button>
 
           <div x-show="showSearchHist && searchHistory.length" x-cloak class="ts-dropdown u-absolute u-z50 u-top-full u-left-0 u-right-0 u-mt-2 u-p-1-5">
             <template x-for="term in searchHistory.slice(0,6)" :key="term">
@@ -56,6 +56,7 @@
           </div>
         </div>
       </div>
+        <p x-show="activeSearchDisabled && !!activeSourceName" x-cloak class="ts-hint u-mt-2 u-text-xs">当前 API 源「<span x-text="activeSourceName"></span>」不支持搜索，已隐藏搜索框。</p>
 
       <div class="u-flex u-items-center u-gap-2 u-shrink-0">
         <button @click="toggleThemeMode()" class="ts-icon-btn" :title="'主题：' + cfg.theme">
@@ -151,6 +152,8 @@
   <div x-show="loading && !videos.length" x-cloak class="ts-loadoverlay">
     <div class="loading-14" role="status" aria-label="加载中"></div>
   </div>
+  <!-- 搜索/加载失败的内联提示（如 403、接口本身不支持搜索） -->
+  <div x-show="searchError" x-cloak class="ts-banner ts-banner--error" x-text="searchError"></div>
 
   <!-- 卡片墙（主内容）：网格模式用 ts-grid-*；开启瀑布流后切到 ts-wall，由 JS 定位 -->
   <div x-show="videos.length" x-cloak id="mainWall" :class="mainWallClass()">
@@ -368,7 +371,7 @@
         <div class="u-flex u-items-center u-justify-between u-pt-5">
           <h3 class="ts-label">API 源（单选）</h3>
           <div class="u-flex u-items-center u-gap-2">
-            <button @click="checkAllSources()" class="ts-ghost-btn">检测全部</button>
+            <button @click="checkAllSources()" class="ts-ghost-btn" title="逐个检测连通性，并自动判断「搜索开关」（搜索关键词 wd=00）">检测全部</button>
             <button @click="exportSources()" class="ts-ghost-btn">导出</button>
             <button @click="$refs.importFile.click()" class="ts-ghost-btn">导入</button>
             <input type="file" x-ref="importFile" @change="importSources($event)" accept=".json" class="u-hidden">
@@ -379,10 +382,11 @@
             <div class="ts-src u-mt-2" :class="!s.enabled?'off':''">
               <button @click="setActiveSource(i)" class="ts-switch" :class="s.enabled?'on':''"><span></span></button>
               <div class="u-grow u-min-w-0" style="width: 70%;">
-                <div class="ts-src-name"><span :class="getStatusColor(s)" class="ts-status-dot u-mr-1">●</span><span x-text="s.name"></span></div>
+                <div class="ts-src-name"><span :class="getStatusColor(s)" class="ts-status-dot u-mr-1">●</span><span x-text="s.name"></span> <span class="ts-src-badge" :class="s.supportSearch===false?'off':''" x-text="s.supportSearch===false?'不支持搜索':'可搜索'"></span></div>
                 <div class="ts-src-url" x-text="s.url"></div>
+                <div class="ts-src-msg" x-show="s._checkMsg" :class="s._status==='error' ? 'is-error' : (s._status==='checking' ? 'is-checking' : '')" x-text="s._checkMsg"></div>
               </div>
-              <button @click="checkSourceStatus(i)" class="ts-icon-btn ts-src-check" :class="s._status==='checking' ? 'is-spinning' : ''" title="检测连接">
+              <button @click="checkSourceStatus(i)" class="ts-icon-btn ts-src-check" :class="s._status==='checking' ? 'is-spinning' : ''" title="检测连接并自动判断搜索开关">
                 <svg viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor"><path d="M884.565333 387.413333a32 32 0 0 1-32 32h-245.333333v-64h180.650667c-36.010667-49.237333-75.733333-88.064-133.632-117.504a309.333333 309.333333 0 1 0 166.613333 315.989334l4.138667-31.744 63.445333 8.32-4.181333 31.744a373.376 373.376 0 0 1-371.2 324.821333 373.333333 373.333333 0 1 1 170.154666-706.176c58.752 29.866667 101.333333 67.925333 137.386667 112.170667V142.08h64v245.333333z"/></svg>
               </button>
               <button @click="editSource(i)" class="ts-icon-btn" title="编辑">
@@ -455,21 +459,31 @@
   <div @click.stop x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" class="ts-modal">
     <h3 class="ts-modal-title u-px-6 u-py-4 u-border-b u-border-line" x-text="editingIdx===null?'添加 API 源':'编辑 API 源'"></h3>
     <div class="u-px-6 u-py-5 ts-scroll u-overflow-y-auto u-max-h-70vh">
-      <div>
+      <div class="u-pt-1">
         <label class="ts-label u-block u-mb-1-5">源名称</label>
         <input type="text" x-model="editingSource.name" placeholder="苹果CMS 源" class="ts-field">
       </div>
-      <div>
+      <div class="u-pt-1">
         <label class="ts-label u-block u-mb-1-5">API 地址</label>
         <input type="text" x-model="editingSource.url" @input="fetchSourceClasses(editingSource.url)" placeholder="https://example.com/api.php/provide/vod/" class="ts-field">
         <p class="ts-hint u-mt-1-5">直接粘贴源提供的<strong>完整接口地址</strong>即可（如 <code class="u-px-1 u-rounded u-bg-surface-2">/api.php/provide/vod/</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/api/json.php</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/api/xml.php</code>、<code class="u-px-1 u-rounded u-bg-surface-2">/xxx/vod/json.html</code>）。系统会自动按返回内容识别 JSON / XML 类型并决定请求地址，无需手动补路径。</p>
       </div>
-      <div>
+      <div class="u-pt-1">
         <label class="ts-label u-block u-mb-1-5">海报比例</label>
         <div class="ts-seg">
           <button type="button" @click="editingSource.listLayout='poster'" :class="(editingSource.listLayout||'poster')==='poster'?'is-active':''">竖图</button>
           <button type="button" @click="editingSource.listLayout='landscape'" :class="(editingSource.listLayout||'poster')==='landscape'?'is-active':''">横图</button>
         </div>
+      </div>
+      <div class="u-flex u-items-center u-justify-between u-mt-4 u-pt-1">
+        <div class="u-grow u-min-w-0 u-pr-4">
+          <label class="ts-label u-block u-mb-1">支持搜索</label>
+          <p class="ts-hint">关闭后该源将不提供搜索入口，发起搜索时也会跳过此源。</p>
+        </div>
+        <label class="ts-switch" :class="editingSource.supportSearch?'on':''" style="cursor:pointer">
+          <input type="checkbox" class="u-hidden" x-model="editingSource.supportSearch">
+          <span></span>
+        </label>
       </div>
       <div class="u-space-y-4 u-pt-1">
         <div>
