@@ -86,13 +86,22 @@ def _to_proxy(abs_url: str) -> str:
 
 
 def _proxy_tag_line(line: str, base_url: str) -> str:
-    """把标签行里的 URI="..."/PREFIX="..." 改写为代理地址（兼容相对地址）。"""
+    """把标签行里的 URI="..."/PREFIX="..." 改写为代理地址。
+
+    三种来源都要覆盖：
+    - 绝对地址 http(s)://...      -> 直接代理
+    - 根相对路径 /foo/bar.key     -> 按 base_url 的 origin 绝对化后代理
+      （HLS 的 AES-128 密钥 URI 常见写法，浏览器会把它拼到本服务地址导致 404，
+        必须改写为 /api/media 代理，否则整条流无法解密）
+    - 相对路径 foo/bar.ts          -> 按 base_url 目录绝对化后代理
+    """
     def repl(m):
         attr, val = m.group(1), m.group(2)
+        if base_url:
+            # urljoin 同时正确处理 绝对地址 / 根相对路径(按 origin) / 相对路径(按目录)
+            return f'{attr}="{_to_proxy(urljoin(base_url, val))}"'
         if val.startswith("http"):
             return f'{attr}="{_to_proxy(val)}"'
-        if base_url and not val.startswith("/"):
-            return f'{attr}="{_to_proxy(urljoin(base_url, val))}"'
         return m.group(0)
     return _TAG_URI_RE.sub(repl, line)
 

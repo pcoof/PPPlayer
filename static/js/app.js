@@ -1,5 +1,5 @@
 /**
- * TSPlayer 主应用逻辑 — Alpine.js 组件
+ * PPPlayer 主应用逻辑 — Alpine.js 组件
  */
 
 function app() {

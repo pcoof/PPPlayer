@@ -1,4 +1,4 @@
-"""TSPlayer 入口 — 启动 Flask + pywebview 桌面窗口"""
+"""PPPlayer 入口 — 启动 Flask + pywebview 桌面窗口"""
 
 import sys
 import os
@@ -215,7 +215,7 @@ class PlayerWindow:
         # 每个窗口使用独立的 JS 桥接对象，避免多窗口共用 js_api 导致状态/目标串扰
         player_api = JsApi(self, 'player')
         kwargs = {
-            "title": "TSPlayer",
+            "title": "PPPlayer",
             "url": player_url,
             "min_size": (360, 640),
             "resizable": True,
@@ -505,7 +505,7 @@ class TrayManager:
             self._mi_exit = mi_exit
 
             self._notify = WinForms.NotifyIcon()
-            self._notify.Text = "TSPlayer"
+            self._notify.Text = "PPPlayer"
             self._notify.ContextMenu = self._menu
             # 图标：优先取项目自带 ico → 其次可执行文件关联图标 → 最后系统默认应用图标
             icon = None
@@ -626,7 +626,7 @@ class TrayManager:
                 new = _parse_app_version(tag)
                 if not new or not cur or new <= cur:
                     if show_no_update:
-                        self._toast("TSPlayer", "当前已是最新版本", "info")
+                        self._toast("PPPlayer", "当前已是最新版本", "info")
                     return
                 # 优先取 .exe/.zip 资产，否则退回 release 页面
                 dl = None
@@ -637,7 +637,7 @@ class TrayManager:
                         break
                 url = dl or (data.get("html_url") or GITHUB_RELEASES_URL)
                 self._latest_update = {"version": tag.lstrip("vV"), "url": url}
-                self._toast("TSPlayer", f"发现新版本 {tag.lstrip('vV')}，点击菜单下载", "info")
+                self._toast("PPPlayer", f"发现新版本 {tag.lstrip('vV')}，点击菜单下载", "info")
                 self._add_update_menu_item(tag.lstrip("vV"), url)
             except SSLError as e:
                 print(f"[Update] 跳过更新检查（证书校验失败，可忽略）：{e}")
@@ -773,10 +773,10 @@ def set_autostart(enable: bool) -> bool:
         value = f'"{exe_path}" "{script_path}"'
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
         if enable:
-            winreg.SetValueEx(key, "TSPlayer", 0, winreg.REG_SZ, value)
+            winreg.SetValueEx(key, "PPPlayer", 0, winreg.REG_SZ, value)
         else:
             try:
-                winreg.DeleteValue(key, "TSPlayer")
+                winreg.DeleteValue(key, "PPPlayer")
             except FileNotFoundError:
                 pass
         winreg.CloseKey(key)
@@ -813,7 +813,7 @@ def get_autostart() -> bool:
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
         try:
-            val, _ = winreg.QueryValueEx(key, "TSPlayer")
+            val, _ = winreg.QueryValueEx(key, "PPPlayer")
             winreg.CloseKey(key)
             return bool(val)
         except FileNotFoundError:
@@ -1345,7 +1345,7 @@ def main() -> None:
     # 主窗口使用独立的 js_api 实例
     main_api = JsApi(player_mgr, 'main')
     window = webview.create_window(
-        title="TSPlayer",
+        title="PPPlayer",
         url=f"http://{FLASK_HOST}:{FLASK_PORT}",
         width=1280,
         height=800,

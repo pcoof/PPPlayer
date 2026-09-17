@@ -5,7 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="theme-color" content="#b0823c">
-<title>TSPlayer</title>
+<title>PPPlayer</title>
 <!-- 环境标记：尽早在 <head> 打上 is-desktop / is-web，避免浏览器里先闪出一排「最小化/最大化/关闭」。
      WebView2 会同步注入 window.chrome.webview（比 window.pywebview 更早可用）；window-chrome.js 会再确认一次。 -->
 <script>document.documentElement.classList.add((window.chrome && window.chrome.webview) ? 'is-desktop' : 'is-web');</script>
@@ -455,13 +455,13 @@
       <div x-show="settingsTab==='about'" x-cloak>
         <div class="u-pt-5">
           <div class="ts-about-head">
-            <img src="/static/thumb.svg" class="ts-about-logo" alt="TSPlayer">
+            <img src="logo.ico" class="ts-about-logo" alt="PPPlayer">
             <div class="u-min-w-0">
-              <h3 class="ts-about-title">TSPlayer</h3>
+              <h3 class="ts-about-title">PPPlayer</h3>
               <p class="ts-hint">聚合播放器桌面应用 · pywebview + Flask + XGPlayer</p>
             </div>
           </div>
-          <p class="ts-hint u-mt-3">TSPlayer 是一款开源的竖屏视频聚合播放桌面应用，支持多 CMS 影视源、瀑布流卡片墙、收藏 / 历史、智能去广告与多种主题风格，所有数据均保存在本地。</p>
+          <p class="ts-hint u-mt-3">PPPlayer 是一款由 AI 编写、设计思路亦来自 AI 的开源视频聚合播放桌面应用，基于 Python + pywebview 构建，支持多 CMS 影视源、瀑布流卡片墙、收藏 / 历史、智能去广告与多种主题风格，所有数据均保存在本地。</p>
         </div>
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">版本信息</label>
@@ -486,7 +486,7 @@
           <label class="ts-label u-block u-mb-2">开源协议</label>
           <p class="ts-hint">本项目以 MIT 协议开源，仅供学习交流使用；请勿用于任何商业或侵权行为。</p>
         </div>
-        <div class="u-aspect-2-3"><a href="https://github.com/search?q=provide%2Fvod&type=code">可以在github查找api接口</div>
+        <div class="u-aspect-2-3"><p class="ts-hint">可以在<a href="https://github.com/search?q=provide%2Fvod&type=code">github</a>中查找api源接口<p></div>
       </div>
     </div>
   </div>

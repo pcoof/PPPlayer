@@ -149,7 +149,7 @@ jobs:
         shell: pwsh
         run: |
           uv run pyinstaller `
-            --onefile --noconsole --icon=logo.ico --name=tsplayer-win-${{ env.FULL_VER }} `
+            --onefile --noconsole --icon=logo.ico --name=ppplayer-win-${{ env.FULL_VER }} `
             --add-data "static;static" `
             --hidden-import clr --hidden-import pythonnet `
             --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms `
@@ -160,11 +160,11 @@ jobs:
             --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint `
             --collect-all pythonnet `
             main.py --noconfirm --clean
-          if (-not (Test-Path dist/tsplayer-win-${{ env.FULL_VER }}.exe)) { throw "PyInstaller single-file build failed" }
-          Copy-Item dist/tsplayer-win-${{ env.FULL_VER }}.exe ${{ env.ARCHIVE_ROOT }}/
+          if (-not (Test-Path dist/ppplayer-win-${{ env.FULL_VER }}.exe)) { throw "PyInstaller single-file build failed" }
+          Copy-Item dist/ppplayer-win-${{ env.FULL_VER }}.exe ${{ env.ARCHIVE_ROOT }}/
           Compress-Archive -Force `
-            -Path dist/tsplayer-win-${{ env.FULL_VER }}.exe `
-            -DestinationPath ${{ env.ARCHIVE_ROOT }}/tsplayer-win-portable-${{ env.FULL_VER }}.zip
+            -Path dist/ppplayer-win-${{ env.FULL_VER }}.exe `
+            -DestinationPath ${{ env.ARCHIVE_ROOT }}/ppplayer-win-portable-${{ env.FULL_VER }}.zip
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

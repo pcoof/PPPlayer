@@ -1,7 +1,9 @@
 
-# TSPlayer — pywebview 桌面版
+# PPPlayer — pywebview 桌面版
 
-pywebview 桌面应用。聚合播放器，支持苹果CMS / 飞飞CMS / 海洋CMS 等多种影视 CMS API 接口，内置 M3U8 智能广告过滤与媒体嗅探。
+> 本项目由 **AI 编写**，整体设计思路（架构、功能取舍、UI/交互方案）也来自 AI。它是对「用 Python + pywebview 做一个轻量桌面视频聚合播放器」这一想法的落地实现。
+
+PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌面应用。它聚合多种影视 CMS API 接口（苹果CMS / 飞飞CMS / 海洋CMS 等），内置 M3U8 智能广告过滤与媒体嗅探，所有数据均保存在本地。
 
 ## 技术栈
 
@@ -33,13 +35,15 @@ cd tsplayer-pywebview
 uv sync
 ```
 
+> 说明：仓库与本地目录名仍为 `tsplayer-pywebview`（GitHub 仓库未迁移），但应用显示名已统一为 **PPPlayer**。
+
 ## 运行
 
 ```bash
 uv run main.py
 ```
 
-首次启动会自动打开 pywebview 窗口（1280×800），标题为 "TSPlayer"。
+首次启动会自动打开 pywebview 窗口（1280×800），标题为 "PPPlayer"。
 
 ## 构建与发布（Windows 单文件 exe）
 
@@ -52,13 +56,13 @@ uv run main.py
 3. `build-package`：在 `windows-latest` 上用 `uv` + PyInstaller 产出单文件 exe（`--onefile --noconsole --icon=logo.ico`），并打包为便携 zip 上传 artifact。
 4. `release`：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传全部产物。
 
-产物：`tsplayer-win-<版本>.exe`（单文件）与 `tsplayer-win-portable-<版本>.zip`（便携包）。
+产物：`ppplayer-win-<版本>.exe`（单文件）与 `ppplayer-win-portable-<版本>.zip`（便携包）。
 
 本地手动构建（与 CI 等价）：
 
 ```bash
 uv sync --frozen
-uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=tsplayer-win \
+uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=ppplayer-win \
   --add-data "static;static" \
   --hidden-import clr --hidden-import pythonnet \
   --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms \
@@ -134,18 +138,6 @@ tsplayer-pywebview/
 
 > Flask 使用 `threaded=True` 并发处理「页面 + 播放列表 + 多切片」的并行请求，并对重复地址做 20s TTL 缓存，速度接近直连。
 
-## CMS 源配置
-
-在设置面板「API 源」中添加。直接粘贴源提供的**完整接口地址**即可，系统会自动按返回内容识别 JSON / XML 类型并决定请求地址，**无需手动补 `/api.php/provide/vod/` 等路径**：
-
-- 标准苹果 CMS：`https://example.com/api.php/provide/vod/`
-- 完整端点（已含脚本/路径）：`https://example.com/api/json.php`、`https://example.com/api/xml.php`、`https://example.com/xxx/vod/json.html`、`https://example.com/xinlangapi.php/provide/vod` 等
-- 纯站点根（不带接口路径）：`https://example.com` —— 系统会补标准苹果 CMS 路径探测
-
-> 注意：识别基于实际返回内容（拉一次 `?ac=videolist` 看是 JSON 还是 XML），不再依赖 URL 子串猜测；站点根会自动尝试 `/api.php/provide/vod/` 与 `/xml/` 两个常见位置。
-
-系统会自动检测 CMS 类型并适配对应接口；可在每个源上单独配置海报比例、片头片尾跳过与分类黑名单。
-
 ## 主题与风格
 
 - 浅色 / 深色 / 跟随系统（设置中心 → 基础 → 主题）
@@ -154,4 +146,4 @@ tsplayer-pywebview/
 ## 许可证
 
 MIT
-*（内容由AI生成，仅供参考）*
+*（本项目由 AI 编写、设计思路亦来自 AI；内容仅供学习交流参考，请勿用于任何商业或侵权行为。）*

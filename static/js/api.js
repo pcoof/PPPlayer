@@ -1,5 +1,5 @@
 /**
- * TSPlayer API 封装模块
+ * PPPlayer API 封装模块
  * 所有与后端 Flask API 的通信集中在此
  */
 

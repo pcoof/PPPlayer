@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>TSPlayer</title>
+<title>PPPlayer</title>
 <!-- 环境标记：尽早打上 is-desktop / is-web，浏览器打开时隐藏仅桌面端可用的窗口按钮（保留全屏按钮） -->
 <script>
 document.documentElement.classList.add( window.chrome && window.chrome.webview ? "is-desktop" : "is-web", );
@@ -257,7 +257,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             metaActors = (item.vod_actor || "").split(/[,，]/).filter(Boolean);
             metaPlayGroups = playState.playGroups || [];
             metaPlaySrc = playState.playSrc || 0;
-            document.title = metaTitle || "TSPlayer";
+            document.title = metaTitle || "PPPlayer";
         }
 
         // ==================== 创建 Slide ====================

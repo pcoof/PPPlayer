@@ -1249,7 +1249,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tsplayer-pywebview"
+name = "ppplayer"
 version = "20260905.1"
 source = { editable = "." }
 dependencies = [
