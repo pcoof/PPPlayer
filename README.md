@@ -41,6 +41,36 @@ uv run main.py
 
 首次启动会自动打开 pywebview 窗口（1280×800），标题为 "TSPlayer"。
 
+## 构建与发布（Windows 单文件 exe）
+
+本项目通过 GitHub Actions（`.github/workflows/build.yml`）自动构建并发布 **Windows 单文件 exe**，不构建 Linux/macOS、InnoSetup 安装包或 wheel/sdist。
+
+流程（推送到 `main` 或手动触发 `Build & Release` 工作流即自动执行）：
+
+1. `calc-version`：计算版本号 `YYYYMMDD.N`（检索当日最大 Tag 序号 +1）。
+2. `update-version-file`：同步 `pyproject.toml` 与 `main.py` 的 `__version__`，提交带 `[skip ci]`。
+3. `build-package`：在 `windows-latest` 上用 `uv` + PyInstaller 产出单文件 exe（`--onefile --noconsole --icon=logo.ico`），并打包为便携 zip 上传 artifact。
+4. `release`：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传全部产物。
+
+产物：`tsplayer-win-<版本>.exe`（单文件）与 `tsplayer-win-portable-<版本>.zip`（便携包）。
+
+本地手动构建（与 CI 等价）：
+
+```bash
+uv sync --frozen
+uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=tsplayer-win \
+  --add-data "static;static" \
+  --hidden-import clr --hidden-import pythonnet \
+  --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms \
+  --hidden-import src --hidden-import src.server --hidden-import src.config_store \
+  --hidden-import src.parser.sniffer --hidden-import src.parser.m3u8_filter \
+  --hidden-import src.cms --hidden-import src.cms.detector --hidden-import src.cms.base \
+  --hidden-import src.cms.apple_cms --hidden-import src.cms.feifei_cms \
+  --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint \
+  --collect-all pythonnet \
+  main.py --noconfirm --clean
+```
+
 ## 项目结构
 
 ```

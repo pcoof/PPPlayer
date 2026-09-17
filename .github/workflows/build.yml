@@ -1,15 +1,12 @@
 name: Build & Release
-# ========== Workflow Core Skills ==========
-# 1. 版本自动生成 YYYYMMDD.N 自增，检索同日Tag最大序号+1
-# 2. Python uv 项目版本自动同步更新（pyproject.toml + main.py __version__），全程不使用pip
-# 3. Ubuntu/Windows/macOS 多平台并行构建，fail‑fast关闭，单个平台失败不阻断其余
-# 4. Python wheel/sdist 通过 uv build 产出
-# 5. Windows: PyInstaller --onefile(单文件便携) / --onedir(目录便携) + InnoSetup安装包
-# 6. Linux: AppImage单文件便携 + tar.gz源码包；macOS: dmg镜像
-# 7. 自动归档制品，artifact持久存储
-# 8. 自动提交版本变更commit、创建Git Tag（幂等可重复执行）
-# 9. 自动生成CHANGELOG，发布GitHub Release，自动上传全部产物
-# 10. 并发锁，防止多push并发造成tag/release冲突；版本bump提交携带[skip ci]防止CI死循环
+# ========== Workflow 说明 ==========
+# 目标：自动构建 Windows 单文件 exe（PyInstaller --onefile --noconsole），并发布 GitHub Release。
+# 1. calc-version：版本号 YYYYMMDD.N 自增（检索同日最大 Tag 序号 +1）。
+# 2. update-version-file：同步 pyproject.toml 与 main.py 的 __version__，提交带 [skip ci]。
+# 3. build-package：仅在 windows-latest 上用 uv + PyInstaller 产出单文件 exe，
+#    打包为便携 zip，上传 artifact（不再构建 Linux/macOS、InnoSetup 安装包、wheel/sdist）。
+# 4. release：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传产物。
+# 并发锁防止多 push 并发造成 tag/release 冲突；版本 bump 提交携带 [skip ci] 防止 CI 死循环。
 # ==========================================
 on:
   workflow_dispatch:
@@ -18,21 +15,20 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel‑in‑progress: false
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
-  GIT_USER_NAME: github‑actions[bot]
-  GIT_USER_EMAIL: 41898282+github‑actions[bot]@users.noreply.github.com
-  DIST_DIR: ./dist
+  GIT_USER_NAME: github-actions[bot]
+  GIT_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
   ARCHIVE_ROOT: ./archive
-  RELEASE_ASSET_ROOT: ./release‑assets
+  RELEASE_ASSET_ROOT: ./release-assets
 
 jobs:
   calc-version:
-    runs-on: ubuntu‑latest
+    runs-on: ubuntu-latest
     outputs:
       full_version: ${{ steps.gen_version.outputs.full_version }}
       date_prefix: ${{ steps.gen_version.outputs.date_prefix }}
@@ -41,8 +37,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          fetch‑tags: true
-          fetch‑depth: 0
+          fetch-tags: true
+          fetch-depth: 0
 
       - name: Generate date prefix YYYYMMDD
         id: date_calc
@@ -72,28 +68,28 @@ jobs:
 
   update-version-file:
     needs: calc-version
-    runs-on: ubuntu‑latest
+    runs-on: ubuntu-latest
     env:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch‑depth:0
-          persist‑credentials: false
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup uv
         if: hashFiles('pyproject.toml') != ''
-        uses: astral‑sh/setup‑uv@v3
+        uses: astral-sh/setup-uv@v3
         with:
           version: latest
-          python‑version: "3.13"
+          python-version: "3.13"
 
       - name: Setup Git identity
         run: |
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
-          git remote set‑url origin "https://x‑access‑token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
 
       - name: Update pyproject.toml version (uv run python NO pip)
         if: hashFiles('pyproject.toml') != ''
@@ -114,9 +110,9 @@ jobs:
           uv run python - <<'PY'
           import re
           p = "main.py"
-          s = open(p, encoding="utf‑8").read()
+          s = open(p, encoding="utf-8").read()
           s = re.sub(r'^__version__\s*=\s*["\'][^"\']*["\']', '__version__ = "${{ env.FULL_VER }}"', s, flags=re.M)
-          open(p, "w", encoding="utf‑8").write(s)
+          open(p, "w", encoding="utf-8").write(s)
           PY
 
       - name: Commit version changes [skip ci]
@@ -131,141 +127,63 @@ jobs:
 
   build-package:
     needs: [calc-version, update-version-file]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail‑fast: false
-      matrix:
-        os: [ubuntu‑latest, windows‑latest, macos‑latest]
-        include:
-          - os: ubuntu‑latest
-            artifact‑suffix: linux
-            archive‑ext: tar.gz
-          - os: windows‑latest
-            artifact‑suffix: win
-            archive‑ext: zip
-          - os: macos‑latest
-            artifact‑suffix: macos
-            archive‑ext: tar.gz
-
+    runs-on: windows-latest
     env:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
-      ARTIFACT_SUFFIX: ${{ matrix.artifact‑suffix }}
-      ARCHIVE_EXT: ${{ matrix.archive‑ext }}
-
     steps:
-      # 重点：拉取刚刚 update‑version‑file job 推送的版本修改commit
-      - name: Checkout latest main(contains version bump commit)
+      # 重点：拉取刚刚 update-version-file job 推送的版本修改commit
+      - name: Checkout latest main (contains version bump commit)
         uses: actions/checkout@v5
         with:
           ref: main
-          fetch‑depth:0
+          fetch-depth: 0
 
       - name: Setup Python + uv
         if: hashFiles('pyproject.toml') != ''
-        uses: astral‑sh/setup‑uv@v3
+        uses: astral-sh/setup-uv@v3
         with:
           version: latest
-          python‑version: "3.13"
+          python-version: "3.13"
 
       - name: uv sync resolve dependencies
         if: hashFiles('pyproject.toml') != ''
         run: uv sync --frozen
 
-      - name: Python build wheel & sdist
-        if: hashFiles('pyproject.toml') != ''
-        run: uv build --out‑dir ${{ env.DIST_DIR }}
-
       - name: Prepare archive directory
-        run: |
-          mkdir -p ${{ env.ARCHIVE_ROOT }}
+        run: mkdir -p ${{ env.ARCHIVE_ROOT }}
 
-      # ================= Windows Build =================
-      - name: Windows PyInstaller single‑file portable exe
-        if: matrix.os == 'windows‑latest'
+      # ================= Windows 单文件 exe =================
+      - name: Windows PyInstaller single-file portable exe
         shell: pwsh
         run: |
           uv run pyinstaller `
-            --onefile --noconsole --icon=logo.ico --name=tsplayer‑win‑${{ env.FULL_VER }} `
-            --add‑data "static;static" `
-            --hidden‑import clr --hidden‑import pythonnet `
-            --hidden‑import webview.platforms.edgechromium --hidden‑import webview.platforms.winforms `
-            --hidden‑import src --hidden‑import src.server --hidden‑import src.config_store `
-            --hidden‑import src.parser.sniffer --hidden‑import src.parser.m3u8_filter `
-            --hidden‑import src.cms --hidden‑import src.cms.detector --hidden‑import src.cms.base `
-            --hidden‑import src.cms.apple_cms --hidden‑import src.cms.feifei_cms `
-            --hidden‑import src.cms.haiyang_cms --hidden‑import src.cms.endpoint `
-            --collect‑all pythonnet `
+            --onefile --noconsole --icon=logo.ico --name=tsplayer-win-${{ env.FULL_VER }} `
+            --add-data "static;static" `
+            --hidden-import clr --hidden-import pythonnet `
+            --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms `
+            --hidden-import src --hidden-import src.server --hidden-import src.config_store `
+            --hidden-import src.parser.sniffer --hidden-import src.parser.m3u8_filter `
+            --hidden-import src.cms --hidden-import src.cms.detector --hidden-import src.cms.base `
+            --hidden-import src.cms.apple_cms --hidden-import src.cms.feifei_cms `
+            --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint `
+            --collect-all pythonnet `
             main.py --noconfirm --clean
-          if (-not (Test‑Path dist/tsplayer‑win‑${{ env.FULL_VER }}.exe)) { throw "PyInstaller single‑file build failed" }
-          Copy‑Item dist/tsplayer‑win‑${{ env.FULL_VER }}.exe ${{ env.ARCHIVE_ROOT }}/
-          Compress‑Archive -Force `
-            -Path dist/tsplayer‑win‑${{ env.FULL_VER }}.exe `
-            -DestinationPath ${{ env.ARCHIVE_ROOT }}/tsplayer‑win‑portable‑${{ env.FULL_VER }}.zip
-
-      - name: Windows PyInstaller one‑dir portable
-        if: matrix.os == 'windows‑latest'
-        shell: pwsh
-        run: |
-          uv run pyinstaller `
-            --onedir --noconsole --icon=logo.ico --name=tsplayer‑win‑onedir‑${{ env.FULL_VER }} `
-            --add‑data "static;static" `
-            --hidden‑import clr --hidden‑import pythonnet `
-            --hidden‑import webview.platforms.edgechromium --hidden‑import webview.platforms.winforms `
-            --hidden‑import src --hidden‑import src.server --hidden‑import src.config_store `
-            --hidden‑import src.parser.sniffer --hidden‑import src.parser.m3u8_filter `
-            --hidden‑import src.cms --hidden‑import src.cms.detector --hidden‑import src.cms.base `
-            --hidden‑import src.cms.apple_cms --hidden‑import src.cms.feifei_cms `
-            --hidden‑import src.cms.haiyang_cms --hidden‑import src.cms.endpoint `
-            --collect‑all pythonnet `
-            main.py --noconfirm --clean
-          if (-not (Test‑Path dist/tsplayer‑win‑onedir‑${{ env.FULL_VER }})) { throw "PyInstaller onedir build failed" }
-          Compress‑Archive -Force `
-            -Path dist/tsplayer‑win‑onedir‑${{ env.FULL_VER }} `
-            -DestinationPath ${{ env.ARCHIVE_ROOT }}/tsplayer‑win‑onedir‑portable‑${{ env.FULL_VER }}.zip
-
-      - name: Build Windows InnoSetup installer
-        if: matrix.os == 'windows‑latest' && hashFiles('installer.iss') != ''
-        uses: amake/innosetup‑actions@v1
-        with:
-          file: installer.iss
-          args: /dMyAppVersion=${{ env.FULL_VER }}
-        continue‑on‑error: false
-
-      - name: Move windows installer to archive
-        if: matrix.os == 'windows‑latest' && hashFiles('installer.iss') != ''
-        shell: pwsh
-        run: |
-          Get‑Child‑Path output/*.exe | Copy‑Item -Destination ${{ env.ARCHIVE_ROOT }}/
-
-      # ================= Linux Build(AppImage单文件便携) =================
-      - name: Linux AppImage build placeholder
-        if: matrix.os == 'ubuntu‑latest'
-        run: |
-          echo "这里接入AppImage构建脚本，输出单文件 *.AppImage 拷贝至 ${ARCHIVE_ROOT}"
-          # 可使用: actions‑appimage‑builder ，产出tsplayer‑${{ env.FULL_VER }}‑x86_64.AppImage
-
-      # ================= macOS Build(dmg镜像) =================
-      - name: macOS dmg build placeholder
-        if: matrix.os == 'macos‑latest'
-        run: |
-          echo "这里接入 create‑dmg 产出 tsplayer‑mac‑${{ env.FULL_VER }}.dmg 拷贝至 ${ARCHIVE_ROOT}"
-
-      - name: Archive wheel/sdist artifacts
-        if: hashFiles('pyproject.toml') != ''
-        run: |
-          set -euo pipefail
-          tar -czf ${{ env.ARCHIVE_ROOT }}/py‑dist‑${{ env.ARTIFACT_SUFFIX }}‑${{ env.FULL_VER }}.tar.gz -C ${{ env.DIST_DIR }} .
+          if (-not (Test-Path dist/tsplayer-win-${{ env.FULL_VER }}.exe)) { throw "PyInstaller single-file build failed" }
+          Copy-Item dist/tsplayer-win-${{ env.FULL_VER }}.exe ${{ env.ARCHIVE_ROOT }}/
+          Compress-Archive -Force `
+            -Path dist/tsplayer-win-${{ env.FULL_VER }}.exe `
+            -DestinationPath ${{ env.ARCHIVE_ROOT }}/tsplayer-win-portable-${{ env.FULL_VER }}.zip
 
       - name: Upload build artifacts
-        uses: actions/upload‑artifact@v4
+        uses: actions/upload-artifact@v4
         with:
-          name: build‑${{ env.ARTIFACT_SUFFIX }}‑${{ env.FULL_VER }}
+          name: build-win-${{ env.FULL_VER }}
           path: ${{ env.ARCHIVE_ROOT }}/
-          retention‑days: 30
+          retention-days: 30
 
   release:
     needs: [calc-version, build-package]
-    runs‑on: ubuntu‑latest
+    runs-on: ubuntu-latest
     env:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
       CHANGELOG_FILE: ./generated_changelog.md
@@ -274,11 +192,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: main
-          fetch‑tags: true
-          fetch‑depth:0
+          fetch-tags: true
+          fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download‑artifact@v4
+        uses: actions/download-artifact@v4
         with:
           path: ${{ env.RELEASE_ASSET_ROOT }}
 
@@ -287,14 +205,14 @@ jobs:
           set -euo pipefail
           git config --global user.name "${{ env.GIT_USER_NAME }}"
           git config --global user.email "${{ env.GIT_USER_EMAIL }}"
-          git remote set‑url origin "https://x‑access‑token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
 
       - name: Create & push Git version tag (idempotent)
         run: |
           set -euo pipefail
           TAG="v${{ env.FULL_VER }}"
-          if git ls‑remote --tags --exit‑code origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Remote tag $TAG exists, clean‑up old tag"
+          if git ls-remote --tags --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Remote tag $TAG exists, clean-up old tag"
             git push origin ":refs/tags/$TAG" || true
           fi
           if git tag -l "$TAG"; then git tag -d "$TAG"; fi
@@ -315,7 +233,7 @@ jobs:
           else
             RANGE="HEAD"
           fi
-          git log --pretty=format:"‑ %s (%h)" $RANGE >> ${{ env.CHANGELOG_FILE }}
+          git log --pretty=format:"- %s (%h)" $RANGE >> ${{ env.CHANGELOG_FILE }}
           echo "" >> ${{ env.CHANGELOG_FILE }}
           cat ${{ env.CHANGELOG_FILE }}
 
@@ -332,7 +250,7 @@ jobs:
           fi
 
       - name: Publish GitHub Release
-        uses: softprops/action‑gh‑release@v2
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.FULL_VER }}
           name: Release v${{ env.FULL_VER }}
