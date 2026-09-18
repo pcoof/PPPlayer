@@ -159,7 +159,7 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-card-media { position: relative; overflow: hidden; background: var(--surface-2); }
 .ts-card-media img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .8s var(--ease); }
 .ts-card:hover .ts-card-media img { transform: scale(1.07); }
-.ts-card-gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(12, 10, 7, .80) 0%, rgba(12, 10, 7, .28) 36%, transparent 58%); }
+/* .ts-card-gradient { position: absolute; inset: 0; background: linear-gradient(to top, rgba(12, 10, 7, .80) 0%, rgba(12, 10, 7, .28) 36%, transparent 58%); } */
 .ts-tag { position: absolute; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 1.3; background: rgba(12, 10, 7, .55); color: #fff; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .ts-fav-btn { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(12, 10, 7, .40); color: #fff; opacity: 0; transform: translateY(-6px) scale(.9); transition: opacity .3s var(--ease), transform .3s var(--ease), background-color .2s; }
 .ts-card:hover .ts-fav-btn { opacity: 1; transform: translateY(0) scale(1); }
@@ -723,8 +723,8 @@ html.dark[data-theme="pop"] { --paper: #15110a; --paper-2:#1f180d; --surface: #2
 .ts-ctxmenu-item.is-disabled { opacity: .45; cursor: not-allowed; }
 .ts-ctxmenu-item.is-disabled:hover { background: transparent; }
 
-/* —— 卡片墙瀑布流（主内容 + 收藏 / 历史抽屉），布局算法参考 doubao.html —— */
-.ts-wall { position: relative; width: 100%; }
+/* —— 卡片墙瀑布流（主内容 + 收藏 / 历史抽屉） —— */
+.ts-wall { position: relative; width: 100%;right: -.5rem;}
 .ts-wall > .ts-wf-item { position: absolute; top: 0; left: 0; box-sizing: border-box; }
 .ts-wf-item > .ts-card { width: 100%; }
 /* 网格模式下 wf-item 退化为普通 grid 子项；用 !important 压掉瀑布流遗留的内联定位，避免切回后错位 */
