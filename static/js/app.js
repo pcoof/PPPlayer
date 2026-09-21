@@ -238,16 +238,18 @@ function app() {
             this.startUpdatePoll();
         },
         async applyAppUpdate() {
-            // 标题栏 / 关于页「更新」按钮：应用更新并重启。frozen 态由后端覆盖 exe 后退出；
-            // 开发态（未冻结）后端无法替换自身，会打开发布页并返回 ok:false, dev:true。
+            // 标题栏 / 关于页「更新」按钮：应用更新并重启。
+            // 后端无论 frozen 还是开发态都会触发退出+重启（ok:true）；仅当前置条件不满足
+            // （未下载完成 / 启动助手失败）才返回 ok:false，此时回退到「可用」并提示错误。
             this.updateState = 'applying';
             try {
                 const resp = await fetch('/api/update/apply', { method: 'POST' });
                 const d = await resp.json().catch(() => ({}));
-                if (d && d.ok === false && d.dev) {
+                if (!d || d.ok === false) {
                     this.updateState = 'available';
-                    this.updateMsg = '开发模式下无法自动更新，已为你打开发布页下载。';
+                    this.updateMsg = (d && d.error) ? `更新失败：${d.error}` : '更新失败，请稍后重试。';
                 }
+                // ok:true 时后端已 os._exit 并由助手重启，本页面即将关闭，无需处理
             } catch (e) {
                 this.updateState = 'available';
             }

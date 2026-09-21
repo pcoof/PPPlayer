@@ -14,12 +14,14 @@
   - SSL 证书校验失败（uv 环境缺 CA / 公司代理重签）时回退系统根证书存储，与 TrayManager 一致。
   - 真机（PyInstaller onefile，sys.frozen=True）：apply 会写一份自删 bat，
     由它等待本进程退出后把新 exe 复制到 sys.executable 并启动，再删除自身。
-  - 开发态（python main.py，未冻结）：无法替换自身，apply 直接打开发布页。
+  - 开发态（python main.py，未冻结）：无法替换正在运行的 Python 解释器，改为把新
+    exe 落到项目根 ppplayer.new.exe，并重启当前开发进程，使「更新→重启」本地可观测。
 """
 
 import os
 import sys
 import json
+import shutil
 import threading
 import tempfile
 import subprocess
@@ -195,6 +197,22 @@ class Updater:
     def _download(self):
         try:
             url = self.download_url
+            # 本地测试支持：PPPLAYER_FAKE_UPDATE 可指向本机 .exe 文件，直接复制即可，
+            # 无需联网即可验证「下载→进度→应用→重启」全流程（生产环境不会走此分支）。
+            if url and os.path.isfile(url):
+                tmpdir = os.path.join(tempfile.gettempdir(), f"{self.app_name}_update")
+                os.makedirs(tmpdir, exist_ok=True)
+                dest = os.path.join(tmpdir, os.path.basename(url) or f"{self.app_name}-update.bin")
+                if os.path.abspath(url) == os.path.abspath(dest):
+                    dest = url   # 源文件本就在临时目录内，无需复制
+                else:
+                    shutil.copyfile(url, dest)
+                with self._lock:
+                    self.downloaded_path = dest
+                    self.progress = 100
+                    self.state = "ready"
+                self._notify_frontend()
+                return
             name = url.split("?")[0].rstrip("/").split("/")[-1] or f"{self.app_name}-update.bin"
             tmpdir = os.path.join(tempfile.gettempdir(), f"{self.app_name}_update")
             os.makedirs(tmpdir, exist_ok=True)
@@ -259,21 +277,40 @@ class Updater:
 
     # —— 应用更新并重启 ——
     def apply(self):
-        """返回 True 表示已触发退出+重启；False 表示未触发（dev 模式或前置条件不满足）。"""
+        """返回 True 表示已触发退出+重启；False 表示前置条件不满足（未 ready / 未下载）。
+
+        真机（PyInstaller onefile, sys.frozen=True）：把下载的 exe 覆盖到
+        sys.executable，再在新 exe 所在目录重启它（本进程随后 os._exit 让出文件锁）。
+        开发态（python main.py）：无法替换正在运行的 Python 解释器，改为
+        (1) 把下载的新 exe 落到项目根目录 ppplayer.new.exe 作为新版本交付物；
+        (2) 重启当前开发进程（python main.py），使「更新→重启」流程在本地可观测。
+        """
         with self._lock:
             if self.state != "ready" or not self.downloaded_path:
                 return False
             src = self.downloaded_path
-        if not getattr(sys, "frozen", False):
-            # 开发态：无法替换正在运行的 Python 脚本，转打开发布页
-            import webbrowser
-            try:
-                webbrowser.open(self.releases_url)
-            except Exception:
-                pass
-            return False
+
+        frozen = bool(getattr(sys, "frozen", False))
         exe = sys.executable
-        bat = self._write_apply_script(src, exe)
+
+        if frozen:
+            dst = exe                                   # 覆盖自身
+            restart_cmd = f'"{exe}"'
+            cwd = os.path.dirname(exe)                  # 在新 exe 所在目录重启
+        else:
+            # 开发态：复制新 exe 到项目根作为新版本交付物，并重启开发进程
+            proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            dst = os.path.join(proj_root, "ppplayer.new.exe")
+            try:
+                os.makedirs(proj_root, exist_ok=True)
+                shutil.copyfile(src, dst)
+                print(f"[Updater] 已将新版本 exe 落到：{dst}")
+            except Exception as e:
+                print(f"[Updater] 复制新版本 exe 失败（不影响重启）：{e}")
+            restart_cmd = self._dev_restart_cmd()
+            cwd = proj_root
+
+        bat = self._write_apply_script(src, dst, restart_cmd, cwd)
         try:
             DETACHED = 0x00000008
             CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -288,15 +325,29 @@ class Updater:
         # 退出当前进程，交由助手等待本进程退出后覆盖并重启
         with self._lock:
             self.state = "applying"
+        print(f"[Updater] 正在应用更新并重启（{'冻结exe' if frozen else '开发进程'}）…")
         os._exit(0)
 
-    def _write_apply_script(self, src, exe):
-        """写一份自删 bat：等待当前 PID 退出 → 复制新 exe 覆盖 → 启动 → 清理。"""
+    def _dev_restart_cmd(self):
+        """重建开发态启动命令：<python> main.py（保留原始 argv 与解释器）。"""
+        import subprocess as _sp
+        return _sp.list2cmdline([sys.executable] + list(sys.argv))
+
+    def _write_apply_script(self, src, dst, restart_cmd, cwd=None):
+        """写一份自删 bat：等待当前 PID 退出 → 复制新文件覆盖 dst → 在 cwd 重启 → 清理。
+
+        src        : 已下载的更新包（exe）
+        dst        : 要覆盖的目标文件（冻结态=sys.executable；开发态=项目根 ppplayer.new.exe）
+        restart_cmd: 覆盖完成后用于 start 的命令行
+        cwd        : 重启前切换到的目录（保证配置/用户数据相对路径一致）
+        """
         tmpdir = os.path.join(tempfile.gettempdir(), f"{self.app_name}_update")
         os.makedirs(tmpdir, exist_ok=True)
         bat = os.path.join(tmpdir, f"{self.app_name}_apply.bat")
         pid = os.getpid()
+        cwd_line = f'cd /d "{cwd}"\r\n' if cwd else ""
         # 用 tasklist /fi 判定 PID 是否还在；find "PID" 命中表头即表示进程仍存在。
+        # 检测到进程消失后额外 ping 2 次（≈2s），确保 OS 释放被覆盖文件的句柄锁。
         template = (
             "@echo off\r\n"
             'set "SRC={SRC}"\r\n'
@@ -305,16 +356,21 @@ class Updater:
             ":wait\r\n"
             'tasklist /fi "PID eq %PID%" | find "PID" >nul\r\n'
             "if errorlevel 1 goto docopy\r\n"
-            "timeout /t 1 /nobreak >nul\r\n"
+            "ping -n 2 127.0.0.1 >nul\r\n"
             "goto wait\r\n"
             ":docopy\r\n"
-            "timeout /t 1 /nobreak >nul\r\n"
+            "ping -n 2 127.0.0.1 >nul\r\n"
             'copy /Y "%SRC%" "%DST%" >nul\r\n'
-            'if exist "%DST%" start "" "%DST%"\r\n'
+            f"{cwd_line}"
+            'start "" {RESTART}\r\n'
             'del "%SRC%" >nul 2>nul\r\n'
             '(goto) 2>nul & del "%~f0" >nul 2>nul\r\n'
         )
-        content = template.replace("{SRC}", src).replace("{DST}", exe).replace("{PID}", str(pid))
+        content = (template
+                   .replace("{SRC}", src)
+                   .replace("{DST}", dst)
+                   .replace("{PID}", str(pid))
+                   .replace("{RESTART}", restart_cmd))
         with open(bat, "w", encoding="utf-8") as f:
             f.write(content)
         return bat
