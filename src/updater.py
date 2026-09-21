@@ -156,12 +156,17 @@ class Updater:
                 self.latest_version, self.download_url, self.notes = info
                 self.state = "available"
                 self.error = ""
+                print(f"[Updater] 版本对比：当前 {self.current_version} → 最新 {self.latest_version}，"
+                      f"存在新版本，需要更新。")
             elif self._last_error:
                 # 网络/SSL 等请求失败：单独呈现，不再与「无更新」混淆（否则用户看到的是静默「没反应」）
                 self.state = "error"
                 self.error = f"检查更新失败：{self._last_error}"[:200]
+                print(f"[Updater] 版本对比：当前 {self.current_version}，检查更新失败"
+                      f"（{self._last_error}），暂不提示更新。")
             else:
                 self.state = "none"
+                print(f"[Updater] 版本对比：当前 {self.current_version}，已是最新版本，无需更新。")
         self._notify_frontend()
         return self.get_status()
 

@@ -2,11 +2,12 @@ name: Build & Release
 # ========== Workflow 说明 ==========
 # 目标：自动构建 Windows 单文件 exe（PyInstaller --onefile --noconsole），并发布 GitHub Release。
 # 1. calc-version：版本号 YYYYMMDD.N 自增（检索同日最大 Tag 序号 +1）。
-# 2. update-version-file：同步 pyproject.toml 与 main.py 的 __version__，提交带 [skip ci]。
+# 2. build-package：用 calc-version 算出的版本写入 version.txt 并随 exe 嵌入（不在源码写死版本），
+#    构建单文件 exe + 便携 zip，上传 artifact。
 # 3. build-package：仅在 windows-latest 上用 uv + PyInstaller 产出单文件 exe，
 #    打包为便携 zip，上传 artifact（不再构建 Linux/macOS、InnoSetup 安装包、wheel/sdist）。
 # 4. release：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传产物。
-# 并发锁防止多 push 并发造成 tag/release 冲突；版本 bump 提交携带 [skip ci] 防止 CI 死循环。
+# 并发锁防止多 push 并发造成 tag/release 冲突；版本在构建期写入 version.txt 嵌入 exe，无需回写源码。
 # ==========================================
 on:
   workflow_dispatch:
@@ -66,68 +67,18 @@ jobs:
           echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
           echo "Calculated Version: v${FULL_VERSION}"
 
-  update-version-file:
-    needs: calc-version
-    runs-on: ubuntu-latest
-    env:
-      FULL_VER: ${{ needs.calc-version.outputs.full_version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Git identity
-        run: |
-          git config --global user.name "${{ env.GIT_USER_NAME }}"
-          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
-
-      # 纯标准库实现：无需 tomli_w / 无需同步项目依赖（避免无谓的 nuitka 等重型构建）
-      - name: Update pyproject.toml version
-        if: hashFiles('pyproject.toml') != ''
-        run: |
-          python3 - <<'PY'
-          import re
-          p = "pyproject.toml"
-          s = open(p, encoding="utf-8").read()
-          s = re.sub(r'(?m)^version\s*=\s*["\'][^"\']*["\']', 'version = "${{ env.FULL_VER }}"', s, count=1)
-          open(p, "w", encoding="utf-8").write(s)
-          PY
-
-      - name: Sync main.py __version__
-        if: hashFiles('main.py') != ''
-        run: |
-          python3 - <<'PY'
-          import re
-          p = "main.py"
-          s = open(p, encoding="utf-8").read()
-          s = re.sub(r'^__version__\s*=\s*["\'][^"\']*["\']', '__version__ = "${{ env.FULL_VER }}"', s, flags=re.M)
-          open(p, "w", encoding="utf-8").write(s)
-          PY
-
-      - name: Commit version changes [skip ci]
-        run: |
-          git add pyproject.toml main.py || true
-          if ! git diff --quiet && ! git diff --staged --quiet ; then
-            git commit -m "chore: bump version to v${{ env.FULL_VER }} [skip ci]"
-            git push origin HEAD:${{ github.ref_name }}
-          else
-            echo "No version file changed, skip commit"
-          fi
+  # 版本不再写死源码（已移除 update-version-file）：build-package 在构建期把版本写入
+  # version.txt 并随 exe 嵌入，运行时由 get_app_version() 读取。
 
   build-package:
-    needs: [calc-version, update-version-file]
+    needs: [calc-version]
     runs-on: windows-latest
     env:
       FULL_VER: ${{ needs.calc-version.outputs.full_version }}
     steps:
-      # 重点：拉取刚刚 update-version-file job 推送的版本修改commit
-      - name: Checkout latest main (contains version bump commit)
+      - name: Checkout code
         uses: actions/checkout@v5
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Setup Python + uv
@@ -144,17 +95,14 @@ jobs:
       - name: Prepare archive directory
         run: mkdir -p ${{ env.ARCHIVE_ROOT }}
 
-      # 构建期确定性注入版本：用 calc-version 算出的 full_version 覆盖 main.py 的 __version__，
-      # 不依赖 update-version-file 的 git push 时机，确保「发布 exe 内置版本 == Git Tag」，
-      # 否则更新器会一直拿旧基准（如 20260905.1）比对而误报「有更新」。
-      - name: Inject version into main.py (build-time)
+      # 构建期把版本写入 version.txt 并随 exe 嵌入：运行时由 get_app_version() 读取，
+      # 确保「发布 exe 内置版本 == Git Tag」，否则更新器会拿旧基准比对而误报「有更新」。
+      - name: Write version into version.txt (build-time)
         shell: pwsh
         run: |
           $ver = "${{ env.FULL_VER }}"
-          $content = [System.IO.File]::ReadAllText("main.py")
-          $content = $content -replace '(?m)^__version__\s*=\s*"[^"]*"', "__version__ = `"$ver`""
-          [System.IO.File]::WriteAllText("main.py", $content)
-          Write-Host "Built-in __version__ = $ver"
+          Set-Content -NoNewline -Path version.txt -Value $ver
+          Write-Host "Embedded version.txt = $ver"
 
       # ================= Windows 单文件 exe =================
       - name: Windows PyInstaller single-file portable exe
@@ -163,6 +111,7 @@ jobs:
           uv run pyinstaller `
             --onefile --noconsole --icon=logo.ico --name=ppplayer `
             --add-data "static;static" `
+            --add-data "version.txt;." `
             --hidden-import clr --hidden-import pythonnet `
             --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms `
             --hidden-import src --hidden-import src.server --hidden-import src.config_store `

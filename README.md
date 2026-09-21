@@ -52,18 +52,18 @@ uv run main.py
 流程（推送到 `main` 或手动触发 `Build & Release` 工作流即自动执行）：
 
 1. `calc-version`：计算版本号 `YYYYMMDD.N`（检索当日最大 Tag 序号 +1）。
-2. `update-version-file`：同步 `pyproject.toml` 与 `main.py` 的 `__version__`，提交带 `[skip ci]`。
-3. `build-package`：在 `windows-latest` 上用 `uv` + PyInstaller 产出单文件 exe（`--onefile --noconsole --icon=logo.ico`），并打包为便携 zip 上传 artifact。
-4. `release`：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传全部产物。
+2. `build-package`：在 `windows-latest` 上用 `uv` + PyInstaller 产出单文件 exe（`--onefile --noconsole --icon=logo.ico`）；构建期把版本写入 `version.txt` 并随 exe 嵌入（源码不再写死版本号），再打包为便携 zip 上传 artifact。
+3. `release`：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传全部产物。
 
-产物：`ppplayer-win-<版本>.exe`（单文件）与 `ppplayer-win-portable-<版本>.zip`（便携包）。
+产物：`ppplayer.exe`（单文件）与 `ppplayer-portable.zip`（便携包）。
 
 本地手动构建（与 CI 等价）：
 
 ```bash
 uv sync --frozen
-uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=ppplayer-win \
+uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=ppplayer \
   --add-data "static;static" \
+  --add-data "version.txt;." \
   --hidden-import clr --hidden-import pythonnet \
   --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms \
   --hidden-import src --hidden-import src.server --hidden-import src.config_store \

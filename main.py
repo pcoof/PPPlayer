@@ -13,10 +13,28 @@ from src.server import create_app
 FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
-# 应用版本（自动更新比对基准）。格式 YYYYMMDD.N，由 CI 工作流自动自增并同步。
-# 此处保留“最近一次已发布版本”作本地开发基准；CI 构建时会用 calc-version 算出的
-# full_version 覆盖注入，确保发布产物内置版本与 Git Tag 一致，避免更新器误报。
-__version__ = "20260921.2"
+# 应用版本（自动更新比对基准）。格式 YYYYMMDD.N。
+# 不在源码中写死版本号：版本在 CI 构建期写入 version.txt 并随 exe 嵌入，
+# 运行时由 get_app_version() 读取，确保「发布产物内置版本 == Git Tag」，避免更新器误报。
+
+
+def _resource_path(rel):
+    """冻结态（PyInstaller onefile）从 _MEIPASS 取附带文件；开发态从仓库根取。"""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, rel)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), rel)
+
+
+def get_app_version():
+    """读取构建期嵌入的版本号（version.txt）。开发态回退到环境变量 PPPLAYER_VERSION 或 'dev'。"""
+    try:
+        with open(_resource_path("version.txt"), "r", encoding="utf-8") as f:
+            v = f.read().strip()
+            if v:
+                return v
+    except OSError:
+        pass
+    return os.environ.get("PPPLAYER_VERSION", "dev")
 
 # 自动更新：GitHub Releases 检测（必须与本仓库一致，否则会去查错误仓库而误报更新）
 GITHUB_REPO = "pcoof/PPPlayer"
@@ -84,7 +102,7 @@ def run_flask(updater=None):
     """在独立线程中启动 Flask 服务器"""
     app = create_app()
     # 把版本与仓库信息注入 app.config，供 /api/version 暴露给前端「关于」页
-    app.config['APP_VERSION'] = __version__
+    app.config['APP_VERSION'] = get_app_version()
     app.config['GITHUB_REPO'] = GITHUB_REPO
     app.config['GITHUB_REPO_URL'] = GITHUB_REPO_URL
     app.config['GITHUB_RELEASES_URL'] = GITHUB_RELEASES_URL
@@ -1300,7 +1318,9 @@ def main() -> None:
 
     # 应用内更新器单例：与托盘、前端共用同一实例（检查 / 后台下载 / 应用重启）
     from src.updater import Updater
-    updater = Updater(__version__, GITHUB_REPO, "PPPlayer")
+    _current_version = get_app_version()
+    print(f"[App] 当前版本：{_current_version}")
+    updater = Updater(_current_version, GITHUB_REPO, "PPPlayer")
 
     flask_thread = threading.Thread(target=lambda: run_flask(updater), daemon=True)
     flask_thread.start()
