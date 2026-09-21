@@ -454,6 +454,34 @@ def create_app() -> Flask:
             "releases_url": app.config.get("GITHUB_RELEASES_URL", ""),
         })
 
+    # ── 应用内更新：状态 / 启动下载 / 应用并重启 ──
+    # 更新器单例由 main.py 在 run_flask 中注入 app.config['UPDATER']（与托盘共用同一实例）。
+    @app.route("/api/update/status")
+    def api_update_status():
+        """返回当前更新状态：state(none|available|downloading|ready|error|applying) / version / progress / notes / error。"""
+        upd = app.config.get("UPDATER")
+        if not upd:
+            return jsonify({"state": "none"})
+        return jsonify(upd.get_status())
+
+    @app.route("/api/update/start", methods=["POST"])
+    def api_update_start():
+        """开始后台下载更新包（幂等）。返回最新状态。"""
+        upd = app.config.get("UPDATER")
+        if not upd:
+            return jsonify({"ok": False, "error": "updater unavailable"}), 500
+        upd.start_download()
+        return jsonify({"ok": True, "status": upd.get_status()})
+
+    @app.route("/api/update/apply", methods=["POST"])
+    def api_update_apply():
+        """应用更新并重启。frozen 态：写自删 bat 覆盖 exe 后退出；dev 态：打开发布页，返回 ok:false。"""
+        upd = app.config.get("UPDATER")
+        if not upd:
+            return jsonify({"ok": False, "error": "updater unavailable"}), 500
+        triggered = upd.apply()
+        return jsonify({"ok": bool(triggered), "dev": not getattr(sys, "frozen", False)})
+
     # ── 静态文件（兜底） ─────────────────────────────────────
     @app.route("/static/<path:filename>")
     def static_files(filename: str):

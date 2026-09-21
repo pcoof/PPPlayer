@@ -78,7 +78,7 @@ def ui_invoke(window, fn):
         return None
     return box.get('v')
 
-def run_flask():
+def run_flask(updater=None):
     """在独立线程中启动 Flask 服务器"""
     app = create_app()
     # 把版本与仓库信息注入 app.config，供 /api/version 暴露给前端「关于」页
@@ -86,6 +86,8 @@ def run_flask():
     app.config['GITHUB_REPO'] = GITHUB_REPO
     app.config['GITHUB_REPO_URL'] = GITHUB_REPO_URL
     app.config['GITHUB_RELEASES_URL'] = GITHUB_RELEASES_URL
+    # 应用内更新器单例：与托盘共用同一实例（前端轮询 /api/update/status 取状态）
+    app.config['UPDATER'] = updater
     import logging
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.WARNING)
@@ -449,8 +451,9 @@ class TrayManager:
 
     GITHUB_URL = GITHUB_REPO_URL
 
-    def __init__(self, manager):
+    def __init__(self, manager, updater=None):
         self._mgr = manager
+        self._updater = updater     # 与前端共用的 Updater 单例（无则降级为纯浏览器下载）
         self._notify = None
         self._menu = None
         self._ctx = None  # WindowsFormsContext
@@ -572,77 +575,31 @@ class TrayManager:
         self.check_update(show_no_update=True)
 
     def check_update(self, show_no_update=True):
-        """后台线程查询 GitHub 最新 Release，发现新版本则弹气泡 + 在菜单插入下载项。
+        """检查 GitHub 最新 Release：发现新版本即后台无感下载，并弹气泡 + 在托盘菜单插入下载项。
 
-        全程不阻塞 UI：网络请求在 daemon 线程，气泡/菜单改动经 ui_invoke 回到 UI 线程。
+        与前端「关于」页、标题栏按钮共用 self._updater 单例：下载在 daemon 线程进行，
+        进度经 /api/update/status 供前端轮询，全程不阻塞 UI。下载完成前前端不打扰用户，
+        仅当 ready 时标题栏才出现「更新」按钮。
         """
         import threading
 
         def _run():
+            upd = self._updater
+            if not upd:
+                return
             try:
-                import requests
-                from requests.exceptions import SSLError, RequestException
-                from requests.adapters import HTTPAdapter
-                import ssl
-
-                class _SystemCertAdapter(HTTPAdapter):
-                    """证书校验兜底：改用系统根证书存储（Windows 系统 ROOT 存储，
-                    含公司代理自签根 CA）。仅用于只读查询最新版本号；实际下载仍由
-                    用户浏览器完成，故此处放宽到系统信任链是安全可接受的。"""
-
-                    def init_poolmanager(self, *args, **kwargs):
-                        kwargs["ssl_context"] = ssl.create_default_context()
-                        return super().init_poolmanager(*args, **kwargs)
-
-                def _fetch():
-                    # 绕开系统代理/VPN/爬虫工具注入的代理，直连 GitHub（代理只影响浏览器）。
-                    no_proxy = {"http": None, "https": None}
-                    # 1) 默认走 certifi 自带 CA 包
-                    try:
-                        return requests.get(
-                            GITHUB_API_LATEST,
-                            timeout=10,
-                            headers={"Accept": "application/vnd.github+json"},
-                            proxies=no_proxy,
-                        )
-                    except SSLError:
-                        # 2) 证书校验失败：多为 uv 环境缺 CA 包 / 公司代理重签证书，
-                        #    退回系统根证书存储再试一次（仍不走系统代理）。
-                        s = requests.Session()
-                        s.proxies = no_proxy
-                        s.mount("https://", _SystemCertAdapter())
-                        return s.get(
-                            GITHUB_API_LATEST,
-                            timeout=10,
-                            headers={"Accept": "application/vnd.github+json"},
-                        )
-
-                resp = _fetch()
-                if resp.status_code != 200:
-                    return
-                data = resp.json()
-                tag = data.get("tag_name") or ""
-                cur = _parse_app_version(__version__)
-                new = _parse_app_version(tag)
-                if not new or not cur or new <= cur:
-                    if show_no_update:
-                        self._toast("PPPlayer", "当前已是最新版本", "info")
-                    return
-                # 优先取 .exe/.zip 资产，否则退回 release 页面
-                dl = None
-                for a in data.get("assets", []):
-                    name = (a.get("name") or "").lower()
-                    if name.endswith(".exe") or name.endswith(".zip"):
-                        dl = a.get("browser_download_url")
-                        break
-                url = dl or (data.get("html_url") or GITHUB_RELEASES_URL)
-                self._latest_update = {"version": tag.lstrip("vV"), "url": url}
-                self._toast("PPPlayer", f"发现新版本 {tag.lstrip('vV')}，点击菜单下载", "info")
-                self._add_update_menu_item(tag.lstrip("vV"), url)
-            except SSLError as e:
-                print(f"[Update] 跳过更新检查（证书校验失败，可忽略）：{e}")
-            except RequestException as e:
-                print(f"[Update] 跳过更新检查（网络不可达，可忽略）：{e}")
+                status = upd.check()
+                state = status.get("state")
+                if state == "available":
+                    # 后台无感下载：不弹下载框；下载完成后前端标题栏才出现「更新」按钮
+                    upd.start_download()
+                    ver = status.get("version") or ""
+                    url = status.get("url") or GITHUB_RELEASES_URL
+                    self._latest_update = {"version": ver, "url": url}
+                    self._toast("PPPlayer", f"发现新版本 {ver}，正在后台下载更新…", "info")
+                    self._add_update_menu_item(ver, url)
+                elif state == "none" and show_no_update:
+                    self._toast("PPPlayer", "当前已是最新版本", "info")
             except Exception as e:
                 print(f"[Update] check failed: {e}")
 
@@ -1327,7 +1284,23 @@ class JsApi:
 
 def main() -> None:
     """主入口：启动 Flask → 创建 pywebview 窗口"""
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    # 单实例：Windows 命名互斥体。已存在实例时（ERROR_ALREADY_EXISTS=183）静默退出，
+    # 不弹错误；非 Windows 平台 ctypes.windll 不存在，捕获后放行。互斥体句柄全程不关闭，
+    # 进程退出才释放，以此保证全局唯一。
+    try:
+        _kernel32 = ctypes.windll.kernel32
+        _mutex = _kernel32.CreateMutexW(None, False, "Global\\PPPlayer_SingleInstance")
+        if _mutex == 0 or ctypes.GetLastError() == 183:
+            print("[SingleInstance] 已有实例在运行，退出。")
+            sys.exit(0)
+    except Exception as e:
+        print(f"[SingleInstance] 检查失败（非 Windows 或缺少依赖，放行）：{e}")
+
+    # 应用内更新器单例：与托盘、前端共用同一实例（检查 / 后台下载 / 应用重启）
+    from src.updater import Updater
+    updater = Updater(__version__, GITHUB_REPO, "PPPlayer")
+
+    flask_thread = threading.Thread(target=lambda: run_flask(updater), daemon=True)
     flask_thread.start()
 
     player_mgr = PlayerWindow(FLASK_PORT)
@@ -1359,9 +1332,11 @@ def main() -> None:
     main_api.attach(window)
     player_mgr._main_window = window
     player_mgr._main_api = main_api
+    # 窗口引用交给更新器：下载完成时主动推送前端（轮询之外的一道保险）
+    updater.set_window(window)
 
     # 系统托盘：在 webview.start 之前创建对象，start 之后在 UI 线程初始化图标
-    player_mgr.tray = TrayManager(player_mgr)
+    player_mgr.tray = TrayManager(player_mgr, updater)
 
     # 允许下载：pywebview 默认 ALLOW_DOWNLOADS=False，会把网页发起的下载（含
     # blob: 导出）直接 Cancel，导致桌面端「导出」毫无反应。开启后即便前端走

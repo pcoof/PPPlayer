@@ -297,7 +297,6 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 
 /* ---------- 关于页 ---------- */
 .ts-about-head { display: flex; align-items: center; gap: 14px; }
-.ts-about-logo { width: 56px; height: 56px; border-radius: 14px; flex-shrink: 0; background: var(--surface-2); }
 .ts-about-title { font-size: 20px; font-weight: 600; color: var(--ink); margin: 0; line-height: 1.2; }
 
 /* ---------- 模态（源编辑） ---------- */
@@ -306,6 +305,36 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-modal-title { font-size: 18px; color: var(--ink); padding: 16px 22px; }
 .ts-btn-primary { padding: 9px 22px; border-radius: 12px; font-size: 13.5px; font-weight: 500; background: var(--accent); color: var(--accent-contrast); transition: filter .2s; }
 .ts-btn-primary:hover { filter: brightness(1.06); }
+
+/* ── 应用内更新（标题栏按钮 + 关于页更新区）── */
+.ts-update-badge { position: relative; }
+.ts-update-dot {
+  position: absolute; top: 5px; right: 5px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent, #b0823c);
+  box-shadow: 0 0 0 2px var(--surface, #fff);
+  animation: ts-update-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ts-update-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: .65; }
+}
+.ts-update-box {
+  padding: 12px 14px; border-radius: 14px;
+  background: var(--accent-soft, rgba(176,130,60,.12));
+  border: 1px solid color-mix(in srgb, var(--accent, #b0823c) 24%, transparent);
+}
+.ts-update-ver { font-size: 13px; font-weight: 600; color: var(--accent-strong, #8a6320); line-height: 1.4; }
+.ts-update-err { color: #d9534f; }
+.ts-update-bar {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--accent, #b0823c) 18%, transparent);
+}
+.ts-update-bar-fill {
+  height: 100%; border-radius: 999px;
+  background: var(--accent, #b0823c);
+  transition: width .25s var(--ease-soft, ease);
+}
 .ts-btn-ghost { padding: 9px 18px; border-radius: 12px; font-size: 13.5px; font-weight: 500; color: var(--ink-2); transition: background-color .2s, color .2s; }
 .ts-btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
 
@@ -724,7 +753,7 @@ html.dark[data-theme="pop"] { --paper: #15110a; --paper-2:#1f180d; --surface: #2
 .ts-ctxmenu-item.is-disabled:hover { background: transparent; }
 
 /* —— 卡片墙瀑布流（主内容 + 收藏 / 历史抽屉） —— */
-.ts-wall { position: relative; width: 100%;right: -.5rem;}
+.ts-wall { position: relative; width: 100%;right: -5px;}
 .ts-wall > .ts-wf-item { position: absolute; top: 0; left: 0; box-sizing: border-box; }
 .ts-wf-item > .ts-card { width: 100%; }
 /* 网格模式下 wf-item 退化为普通 grid 子项；用 !important 压掉瀑布流遗留的内联定位，避免切回后错位 */

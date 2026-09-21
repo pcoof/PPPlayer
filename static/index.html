@@ -59,6 +59,11 @@
         <p x-show="activeSearchDisabled && !!activeSourceName" x-cloak class="ts-hint u-mt-2 u-text-xs">当前 API 源「<span x-text="activeSourceName"></span>」不支持搜索，已隐藏搜索框。</p>
 
       <div class="u-flex u-items-center u-gap-2 u-shrink-0">
+        <!-- 应用内更新提示按钮：仅在更新包下载就绪(ready)时显示，位于主题按钮左侧 -->
+        <button x-show="updateState==='ready'" x-cloak @click="applyAppUpdate()" class="ts-icon-btn ts-update-badge" title="有可用更新，点击重启更新">
+          <svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0 1 14-3M20 15a8 8 0 0 1-14 3"/></svg>
+          <span class="ts-update-dot"></span>
+        </button>
         <button @click="toggleThemeMode()" class="ts-icon-btn" :title="'主题：' + cfg.theme">
           <template x-if="cfg.theme==='light'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-1.414-1.414M6.343 6.343 4.93 4.93m12.728 1.414L16.242 7.76M6.343 17.657l-1.414 1.414M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg></template>
           <template x-if="cfg.theme==='dark'"><svg class="u-w-5 u-h-5 u-text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></template>
@@ -455,7 +460,6 @@
       <div x-show="settingsTab==='about'" x-cloak>
         <div class="u-pt-5">
           <div class="ts-about-head">
-            <img src="logo.ico" class="ts-about-logo" alt="PPPlayer">
             <div class="u-min-w-0">
               <h3 class="ts-about-title">PPPlayer</h3>
               <p class="ts-hint">聚合播放器桌面应用 · pywebview + Flask + XGPlayer</p>
@@ -478,7 +482,30 @@
           <div class="ts-seg">
             <button @click="openExternal(repoUrl)" class="ts-ghost-btn" :disabled="!repoUrl">项目主页</button>
             <button @click="openExternal(releasesUrl)" class="ts-ghost-btn" :disabled="!releasesUrl">更新日志 / 下载</button>
-            <button @click="checkAppUpdate()" class="ts-ghost-btn" :disabled="updateChecking"><span x-show="!updateChecking">检查更新</span><span x-show="updateChecking">检查中…</span></button>
+            <button x-show="updateState==='none'" @click="checkAppUpdate()" class="ts-ghost-btn" :disabled="updateChecking"><span x-show="!updateChecking">检查更新</span><span x-show="updateChecking">检查中…</span></button>
+          </div>
+
+          <!-- 应用内更新区：有可用更新时显示；无更新则整块隐藏 -->
+          <div x-show="updateState!=='none'" x-cloak class="ts-update-box u-mt-3">
+            <div class="ts-update-row u-flex u-items-center u-justify-between u-gap-3">
+              <div class="u-min-w-0">
+                <p class="ts-update-ver" x-show="updateState==='checking'">正在检查更新…</p>
+                <p class="ts-update-ver" x-show="updateState==='available'"><span x-text="updateVersion"></span> 可用，点击更新</p>
+                <p class="ts-update-ver" x-show="updateState==='downloading'">正在下载更新包… <span x-text="updateProgress"></span>%</p>
+                <p class="ts-update-ver" x-show="updateState==='ready'">更新包已就绪，点击立即更新</p>
+                <p class="ts-update-ver ts-update-err" x-show="updateState==='error'" x-text="'下载失败：' + updateError"></p>
+              </div>
+              <div class="u-shrink-0 u-flex u-gap-2">
+                <button x-show="updateState==='available'" @click="startAppUpdate()" class="ts-btn-primary">更新</button>
+                <button x-show="updateState==='downloading'" disabled class="ts-btn-primary u-opacity-60 u-cursor-wait">下载中…</button>
+                <button x-show="updateState==='ready'" @click="applyAppUpdate()" class="ts-btn-primary">立即更新</button>
+                <button x-show="updateState==='error'" @click="startAppUpdate()" class="ts-btn-primary">重试</button>
+              </div>
+            </div>
+            <!-- 下载进度条：下载中 / 已就绪 均展示，实时反映百分比 -->
+            <div x-show="updateState==='downloading' || updateState==='ready'" class="ts-update-bar u-mt-2">
+              <div class="ts-update-bar-fill" :style="'width:' + updateProgress + '%'"></div>
+            </div>
           </div>
           <p class="ts-hint u-mt-2" x-show="updateMsg" x-text="updateMsg"></p>
         </div>

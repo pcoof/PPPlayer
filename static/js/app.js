@@ -42,6 +42,13 @@ function app() {
         releasesUrl: '',
         updateChecking: false,
         updateMsg: '',
+        // ── 应用内更新状态机（与后端 Updater 单例同步）──
+        updateState: 'none',      // none | available | downloading | ready | error | applying
+        updateVersion: '',
+        updateProgress: 0,        // 0-100
+        updateError: '',
+        updateNotes: '',
+        _updatePollTimer: null,
         bossKeyListening: false,
         themeList: [
             { id: 'default', name: '主题风格', swatch: 'background:linear-gradient(135deg,#f6f3ec 0 50%,#b0823c 50% 100%)' },
@@ -151,6 +158,8 @@ function app() {
             this.applyBossKey();
             // 拉取版本与仓库信息，供「关于」页展示
             this.fetchVersion();
+            // 启动更新状态轮询：后端发现新版本会自动后台下载，就绪后标题栏出现「更新」按钮
+            this.startUpdatePoll();
         },
 
         // ── 关于页：版本信息 + 外部链接 / 更新检查 ──
@@ -176,17 +185,72 @@ function app() {
             if (this.updateChecking) return;
             this.updateChecking = true;
             this.updateMsg = '正在检查更新…';
-            const done = () => { this.updateChecking = false; };
+            // 触发后端检查（含后台下载），并启动轮询刷新状态。
+            // 反馈由轮询驱动：检查中→检查中…；无更新→「当前已是最新版本」；有更新→下载进度 / 更新按钮。
             if (window.pywebview && window.pywebview.api && window.pywebview.api.check_update) {
-                try {
-                    window.pywebview.api.check_update(true);
-                    // 后端会弹气泡 / 托盘菜单提示；前端给个兜底反馈
-                    setTimeout(() => { if (this.updateChecking) { this.updateMsg = '已触发更新检查，请查看系统托盘提示。'; done(); } }, 1500);
-                    return;
-                } catch (e) {}
+                try { window.pywebview.api.check_update(true); } catch (e) {}
             }
-            this.updateMsg = '当前环境不支持检查更新（请到项目主页查看）。';
-            done();
+            this.startUpdatePoll();
+        },
+
+        // ── 应用内更新：轮询后端状态 + 触发下载 / 应用重启 ──
+        startUpdatePoll() {
+            if (this._updatePollTimer) return;  // 已在轮询
+            const tick = async () => {
+                try {
+                    const resp = await fetch('/api/update/status');
+                    if (resp.ok) {
+                        const d = await resp.json();
+                        this.updateState = d.state || 'none';
+                        this.updateVersion = d.version || '';
+                        this.updateProgress = d.progress || 0;
+                        this.updateError = d.error || '';
+                        this.updateNotes = d.notes || '';
+                        if (this.updateState !== 'none') this.updateChecking = false;
+                    }
+                } catch (e) { /* 非致命：下次轮询继续 */ }
+                // 终止条件：已就绪 / 出错 —— 不再空转轮询
+                if (this.updateState === 'ready' || this.updateState === 'error') {
+                    this._updatePollTimer = null;
+                    return;
+                }
+                // 检查/下载进行中（checking / available / downloading）保持轮询，直到落定结果
+                if (this.updateState === 'none') {
+                    // 仅当用户主动点过「检查更新」时才提示「已是最新」；启动时的静默轮询不打扰
+                    if (this.updateChecking) {
+                        this.updateChecking = false;
+                        this.updateMsg = '当前已是最新版本';
+                    }
+                    this._updatePollTimer = null;
+                    return;
+                }
+                this._updatePollTimer = setTimeout(tick, 1500);
+            };
+            this._updatePollTimer = setTimeout(tick, 300);
+        },
+        onUpdateStatusChanged() {
+            // 由后端下载完成时主动调用（evaluate_js 推送），立即刷新一次状态并恢复轮询
+            this.startUpdatePoll();
+        },
+        async startAppUpdate() {
+            // 关于页「更新」按钮：启动后台下载（若未开始）并展示进度条
+            try { await fetch('/api/update/start', { method: 'POST' }); } catch (e) {}
+            this.startUpdatePoll();
+        },
+        async applyAppUpdate() {
+            // 标题栏 / 关于页「更新」按钮：应用更新并重启。frozen 态由后端覆盖 exe 后退出；
+            // 开发态（未冻结）后端无法替换自身，会打开发布页并返回 ok:false, dev:true。
+            this.updateState = 'applying';
+            try {
+                const resp = await fetch('/api/update/apply', { method: 'POST' });
+                const d = await resp.json().catch(() => ({}));
+                if (d && d.ok === false && d.dev) {
+                    this.updateState = 'available';
+                    this.updateMsg = '开发模式下无法自动更新，已为你打开发布页下载。';
+                }
+            } catch (e) {
+                this.updateState = 'available';
+            }
         },
 
         // ── 老板键：捕获组合键 + 注册全局热键 ──
