@@ -144,12 +144,24 @@ jobs:
       - name: Prepare archive directory
         run: mkdir -p ${{ env.ARCHIVE_ROOT }}
 
+      # 构建期确定性注入版本：用 calc-version 算出的 full_version 覆盖 main.py 的 __version__，
+      # 不依赖 update-version-file 的 git push 时机，确保「发布 exe 内置版本 == Git Tag」，
+      # 否则更新器会一直拿旧基准（如 20260905.1）比对而误报「有更新」。
+      - name: Inject version into main.py (build-time)
+        shell: pwsh
+        run: |
+          $ver = "${{ env.FULL_VER }}"
+          $content = [System.IO.File]::ReadAllText("main.py")
+          $content = $content -replace '(?m)^__version__\s*=\s*"[^"]*"', "__version__ = `"$ver`""
+          [System.IO.File]::WriteAllText("main.py", $content)
+          Write-Host "Built-in __version__ = $ver"
+
       # ================= Windows 单文件 exe =================
       - name: Windows PyInstaller single-file portable exe
         shell: pwsh
         run: |
           uv run pyinstaller `
-            --onefile --noconsole --icon=logo.ico --name=ppplayer-win-${{ env.FULL_VER }} `
+            --onefile --noconsole --icon=logo.ico --name=ppplayer `
             --add-data "static;static" `
             --hidden-import clr --hidden-import pythonnet `
             --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms `
@@ -160,11 +172,11 @@ jobs:
             --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint `
             --collect-all pythonnet `
             main.py --noconfirm --clean
-          if (-not (Test-Path dist/ppplayer-win-${{ env.FULL_VER }}.exe)) { throw "PyInstaller single-file build failed" }
-          Copy-Item dist/ppplayer-win-${{ env.FULL_VER }}.exe ${{ env.ARCHIVE_ROOT }}/
+          if (-not (Test-Path dist/ppplayer.exe)) { throw "PyInstaller single-file build failed" }
+          Copy-Item dist/ppplayer.exe ${{ env.ARCHIVE_ROOT }}/
           Compress-Archive -Force `
-            -Path dist/ppplayer-win-${{ env.FULL_VER }}.exe `
-            -DestinationPath ${{ env.ARCHIVE_ROOT }}/ppplayer-win-portable-${{ env.FULL_VER }}.zip
+            -Path dist/ppplayer.exe `
+            -DestinationPath ${{ env.ARCHIVE_ROOT }}/ppplayer-portable.zip
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

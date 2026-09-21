@@ -119,13 +119,22 @@ class Updater:
         new = self._parse(tag)
         if not new or not cur or new <= cur:
             return None
-        # 优先取 .exe / .zip 资产，否则退回 release 页面
+        # 自更新优先用单文件 .exe（可直接覆盖 sys.executable）；
+        # 仅在无 .exe 时退回 .zip；都没有则退回 release 页面。
+        # 注意：本仓库 Release 同时含 ppplayer.exe 与 ppplayer-portable.zip，
+        # 必须显式「先 exe 后 zip」，否则可能把 zip 当 exe 覆盖而损坏程序。
         dl = None
         for a in data.get("assets", []):
             name = (a.get("name") or "").lower()
-            if name.endswith(".exe") or name.endswith(".zip"):
+            if name.endswith(".exe"):
                 dl = a.get("browser_download_url")
                 break
+        if not dl:
+            for a in data.get("assets", []):
+                name = (a.get("name") or "").lower()
+                if name.endswith(".zip"):
+                    dl = a.get("browser_download_url")
+                    break
         url = dl or (data.get("html_url") or self.releases_url)
         notes = data.get("body") or ""
         return (tag.lstrip("vV"), url, notes)

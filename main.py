@@ -14,10 +14,12 @@ FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
 # 应用版本（自动更新比对基准）。格式 YYYYMMDD.N，由 CI 工作流自动自增并同步。
-__version__ = "20260905.1"
+# 此处保留“最近一次已发布版本”作本地开发基准；CI 构建时会用 calc-version 算出的
+# full_version 覆盖注入，确保发布产物内置版本与 Git Tag 一致，避免更新器误报。
+__version__ = "20260921.2"
 
-# 自动更新：GitHub Releases 检测
-GITHUB_REPO = "pcoof/tsplayer-pywebview"
+# 自动更新：GitHub Releases 检测（必须与本仓库一致，否则会去查错误仓库而误报更新）
+GITHUB_REPO = "pcoof/PPPlayer"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"

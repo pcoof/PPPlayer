@@ -881,7 +881,7 @@ wheels = [
 
 [[package]]
 name = "ppplayer"
-version = "20260905.1"
+version = "20260905.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

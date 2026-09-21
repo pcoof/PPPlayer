@@ -1,6 +1,6 @@
 [project]
 name = "ppplayer"
-version = "20260905.1"
+version = "20260905.2"
 description = "CMS api - 聚合播放器桌面应用"
 requires-python = ">=3.11"
 dependencies = [
