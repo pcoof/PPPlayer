@@ -110,6 +110,7 @@ html.is-web .ts-toprow, html.is-web .pp-topbar { cursor: default; }
 
 /* ===== 全屏状态：隐藏自定义标题栏与边缘缩放热区（对齐原生窗口全屏行为） ===== */
 body.is-fullscreen .pp-topbar, body.is-fullscreen .ts-toprow, body.is-fullscreen .ts-header { display: none !important; }
+body.is-fullscreen .ts-catnav, body.is-fullscreen #appMain .ts-content-blur { display: none !important; }
 body.is-fullscreen .win-edge { display: none !important; pointer-events: none !important; }
 
 /* 全屏时播放器舞台占满整个视口（标题栏隐藏后无需再留顶部空间） */
@@ -192,15 +193,40 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 	to { transform: rotate(360deg); }
 }
 
-/* ---------- 顶部加载进度条（切源 / 切分类 / 加载更多时显示） ---------- */
-.ts-loadbar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 60; background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%); background-size: 45% 100%; background-repeat: no-repeat; animation: ts-loadbar-slide 1.05s ease-in-out infinite; pointer-events: none; }
+/* ---------- 顶部加载进度条（切源 / 切分类 / 加载更多时显示） ----------
+   改为绝对定位并相对 #appMain 定位：#appMain 起点恰好在标题栏下方，
+   因此进度条只覆盖内容区顶部，绝不上探标题栏（原 fixed top:0 会盖住窗口控制行）。 */
+.ts-loadbar { position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 21; background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%); background-size: 45% 100%; background-repeat: no-repeat; animation: ts-loadbar-slide 1.05s ease-in-out infinite; pointer-events: none; }
 @keyframes ts-loadbar-slide {
 	0% { background-position: -45% 0; }
 	100% { background-position: 145% 0; }
 }
 
-/* ---------- 初始加载遮罩（居中大转圈） ---------- */
-.ts-loadoverlay { display: flex; align-items: center; justify-content: center; min-height: 62vh; pointer-events: none; }
+/* ---------- 应用主体容器：承载「导航菜单 + 主内容」 ----------
+   关键约束：毛玻璃模糊加载层 (.ts-content-blur) 只在此容器内铺满，
+   顶部标题栏 (.ts-header) 在容器之外、z-index 更高，永不被动层覆盖或拦截交互。 */
+.ts-appmain { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+
+/* ---------- 毛玻璃模糊加载层（切源 / 切分类 / 搜索 等整页重载时，busy=true） ----------
+   位置绝对、inset:0 仅覆盖 #appMain 内的导航菜单与主内容；#appMain 的 overflow:hidden
+   与 position 边界从物理上阻止它向上延伸，标题栏始终保持清晰且可正常点击。 */
+.ts-content-blur {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.25);
+  backdrop-filter: blur(10px) saturate(1.25);
+  border-top: 1px solid var(--line);     /* 与上方标题栏的明确分界 */
+  pointer-events: auto;                   /* 加载期间拦截点击，避免重复触发请求 */
+}
+.ts-blur-spinner {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 4px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  box-shadow: 0 10px 34px -10px rgba(0, 0, 0, .35);
+  animation: ts-spin .85s linear infinite;
+}
 
 /* ---------- 抽屉 / 面板 ---------- */
 .ts-hist { column-gap: .5rem; column-count: 2; position: relative; }

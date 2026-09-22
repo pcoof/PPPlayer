@@ -76,6 +76,10 @@ function app() {
         playerHover: false,
         showPlayerSidebar: true,
         loading: false,
+        // 整页重载（切源 / 切分类 / 搜索 / 首次加载）进行中的「忙碌」标志。
+        // 与 loading 区分：loading 也为无限滚动「加载更多」置位，而 busy 只为真·整页重载，
+        // 用于驱动内容区毛玻璃模糊层（busy 时不触发模糊，避免滚动追加时也盖一层毛玻璃）。
+        busy: false,
         searchError: '',     // 搜索/加载失败时展示的友好错误（如 403、接口不支持搜索）
         sourceClassesFetched: [],
         sourceClassesLoading: false,
@@ -468,6 +472,7 @@ function app() {
                 alert('请先检测该源连接状态，确认可用后再切换');
                 return;
             }
+            this.busy = true; // 点击切源立即显示毛玻璃模糊层 + 加载动画（早于 loadClasses 异步等待，避免切源瞬间露出未模糊内容）
             this.sources = this.sources.map((s, idx) => ({ ...s, enabled: idx === i }));
             this.saveSources();
             if (src && src.name) document.title = src.name;
@@ -645,6 +650,7 @@ function app() {
             if (this.searchWd && activeSource.supportSearch === false) this.searchWd = '';
             if (!loadMore) this.scrollWallToTop();
             this.loading = true;
+            if (!loadMore) this.busy = true;   // 仅整页重载触发毛玻璃模糊层；滚动追加(loadMore)不触发
             this.searchError = '';
             try {
                 // 搜索场景优先用 ac=videolist（返回完整数据，含海报/播放地址，且苹果 CMS 普遍支持）；
@@ -698,6 +704,7 @@ function app() {
                 this.hasMore = false;
             } finally {
                 this.loading = false;
+                this.busy = false;
                 this.$nextTick(() => {
                     this.setupAutoLoad();
                     this.relayoutMainWall(); // 瀑布流模式下追加 / 刷新数据后重新排布

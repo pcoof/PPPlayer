@@ -1,4 +1,25 @@
+<h1 align="center">
+  <img src="static/logo.svg" alt="ppplayer" width="300" />
+  <br>
+  <a href="https://github.com/pcoof/ppplayer/releases">PPPlayer 桌面版</a>
+  <br>
+</h1>
+<div align="center">
 
+[![](https://img.shields.io/github/v/release/pcoof/ppplayer?label=Release&logo=github)](/)
+[![](https://img.shields.io/badge/license-MIT-blue.svg)]()
+[![](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
+</div>
+<div align="center">
+
+[![](https://raw.githubusercontent.com/CodePhiliaX/resource-trusteeship/main/readmex.svg)](https://readmex.com/pcoof/ppplayer)
+[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/pcoof/ppplayer)
+[![](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff
+)](https://zread.ai/pcoof/ppplayer)
+[![](https://img.shields.io/badge/图表-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=digitalocean)](https://gitdiagram.com/pcoof/PPPlayer)
+
+
+</div>
 # PPPlayer — pywebview 桌面版
 
 > 本项目由 **AI 编写**，整体设计思路（架构、功能取舍、UI/交互方案）也来自 AI。它是对「用 Python + pywebview 做一个轻量桌面视频聚合播放器」这一想法的落地实现。
@@ -10,7 +31,7 @@ PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌�
 - **Python 3.11+** + uv 包管理
 - **pywebview** — 无边框桌面窗口容器（自定义标题栏、边缘缩放、Aero Snap）
 - **Flask** — 内置 HTTP 服务器（`127.0.0.1:19527`，嵌入 pywebview）
-- **前端** — 原生 CSS（单一设计系统 `style.css`，含语义化组件类 + 轻量工具类层 `u-*`，**无 Tailwind 构建**）+ Alpine.js + HLS.js + XGPlayer（弹出播放页）
+- **前端** — 原生 CSS（单一设计系统 `style.css`，含语义化组件类 + 轻量工具类层 `u-*`）+ Alpine.js + HLS.js + XGPlayer（弹出播放页）
 
 ## 功能
 
@@ -22,20 +43,27 @@ PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌�
 - **源连接检测** — 设置「API 源」中可单源「检测连接」或「检测全部」，状态以彩色圆点（绿/红/灰）显示，检测中图标旋转
 - 片头片尾跳过、自动连播、倍速记忆
 - **M3U8 智能去广告**（默认开启）— 自动识别并剔除片头 / 片中广告切片（基于切片源目录签名差异与 `#EXT-X-DISCONTINUITY` 分段），只播放正片；关闭则原样加载
-- 媒体嗅探（DPlayer / ArtPlayer / CKplayer / JWPlayer / iframe 等）
 - 主题系统 — 浅色 / 深色 / 跟随系统，叠加 **九套视觉风格**（默认 / NFT / 像素风 / 赛博朋克 / 手绘插画 / 现实·超现实 / 简约 / 未来主义 / 波普艺术），独立组合
 - 数据导入导出（JSON 格式，含收藏 / 历史 / 源 / 配置）
+- **切源 / 切分类 / 搜索的毛玻璃等待层** — 整页重载时（切换 API 源、切换分类、搜索、首次加载）内容区与导航菜单叠加一层毛玻璃模糊 + 居中加载动画，弱响应期间给出明确反馈；该层被限制在主内容容器内，**绝不遮挡顶部标题栏**（窗口标题栏始终清晰可交互）。无限滚动「加载更多」为增量追加，不触发模糊层
+
+## 🌴 注意事项
+
+- 仅此Github发布，请勿上当受骗；请各管理者不要宣传及引流本软件。
+- 强烈倡导合法观影，本软件仅作为播放工具，不涉及资源存储或分发。
+- 仅供个人学习交流之用，24小时内请自觉卸载，勿作商业用途。
+- 在开始使用前，请务必详读并同意用户协议，确保遵守相关规定。
 
 ## 安装
 
 ```bash
-cd tsplayer-pywebview
+cd PPPlayer
 
 # 安装依赖
 uv sync
 ```
 
-> 说明：仓库与本地目录名仍为 `tsplayer-pywebview`（GitHub 仓库未迁移），但应用显示名已统一为 **PPPlayer**。
+> 说明：仓库与本地目录名仍为 `PPPlayer`（GitHub 仓库未迁移），但应用显示名已统一为 **PPPlayer**。
 
 ## 运行
 
@@ -47,7 +75,7 @@ uv run main.py
 
 ## 构建与发布（Windows 单文件 exe）
 
-本项目通过 GitHub Actions（`.github/workflows/build.yml`）自动构建并发布 **Windows 单文件 exe**，不构建 Linux/macOS、InnoSetup 安装包或 wheel/sdist。
+本项目通过 GitHub Actions（`.github/workflows/build.yml`）自动构建并发布 **Windows 单文件 exe**。
 
 流程（推送到 `main` 或手动触发 `Build & Release` 工作流即自动执行）：
 
@@ -78,7 +106,7 @@ uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=ppplayer \
 ## 项目结构
 
 ```
-tsplayer-pywebview/
+PPPlayer/
 ├── pyproject.toml           # uv 项目配置
 ├── main.py                  # 入口：启动 Flask + pywebview
 ├── README.md

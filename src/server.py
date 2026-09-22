@@ -46,6 +46,35 @@ def _run_with_timeout(func, timeout, timeout_result):
     return timeout_result
 
 
+def _classify_connection_error(e) -> str:
+    """把 requests 的连接类异常转成可读、可操作的中文提示。
+
+    这些异常在设置中心「检测」与播放拉取时最常见，用户看到笼统的「连接失败」
+    往往无法定位。这里按根因细分：远端强制重置(10054，多为 WAF/防火墙在 TCP 或
+    TLS 握手阶段 RST)、超时、DNS 解析失败、连接被拒等，分别给出排查方向。
+    """
+    text = str(e)
+    low = text.lower()
+    # 远端强制重置：WAF/防火墙在 TCP 或 TLS 握手阶段 RST（含 urllib3 包装的
+    # ProtocolError('Connection aborted.', ConnectionResetError(10054,...))）
+    if "10054" in text or "强迫关闭" in text or "connection reset" in low or "reset by peer" in low:
+        return (
+            "连接被远端强制重置（10054）：通常是源站 WAF / 防火墙拦截了非浏览器客户端的 "
+            "TCP 或 TLS 握手，或本地网络 / VPN 不通。可先用浏览器直接打开该地址确认能否访问；"
+            "若开着 VPN / 代理软件请关闭后重试。部分源对数据中心 IP 整段封锁，家用网络通常正常。"
+        )
+    if "timed out" in low or "timeout" in low:
+        return "连接超时：源站响应过慢或本地网络不通，请稍后重试。"
+    if "name or service not known" in low or "getaddrinfo" in low or "failed to resolve" in low \
+            or "nodename nor servname" in low:
+        return "域名解析失败：请检查源地址是否正确、本地网络 / DNS 是否正常。"
+    if "refused" in low or "connection refused" in low or "actively refused" in low:
+        return "连接被拒绝：源站未在该端口监听，源地址或端口可能错误。"
+    if "connection aborted" in low or "protocolerror" in low:
+        return "连接被中断（协议错误）：源站中途关闭了连接，多为 WAF / 防火墙拦截，可用浏览器直接打开该地址确认。"
+    return "连接失败：" + text
+
+
 def _is_cloudflare_challenge(body: str) -> bool:
     """粗判响应体是否为 Cloudflare 之类的「浏览器验证」拦截页。"""
     if not body:
@@ -376,6 +405,9 @@ def create_app() -> Flask:
             return jsonify({"error": "Missing source"}), 400
 
         def _do_check():
+            # 注意：本函数在 _run_with_timeout 的守护线程中执行，Flask 请求/应用上下文
+            # 仅在线程局部存在、在子线程中不可用；因此这里只能返回纯 dict，
+            # 禁止调用 jsonify()（它依赖 current_app）。jsonify 统一由主线程完成。
             cms = detect_cms(source)
             # 1) 连通性检测：拉分类列表
             classes = cms.fetch_classes()
@@ -422,31 +454,33 @@ def create_app() -> Flask:
                 support_search = None
                 search_note = "搜索探测失败：" + str(e)[:120]
 
-            return jsonify({
+            return {
                 "status": "ok",
                 "class_count": class_count,
                 "support_search": support_search,   # true / false / null(未知)
                 "search_note": search_note,
-            })
+            }
 
+        # 硬超时兜底：源站挂死时也能在此时间内返回，避免前端「检测中」卡死。
+        # 超时结果与正常结果都为纯 dict；jsonify 必须在主请求线程执行（子线程无应用上下文）。
         try:
-            # 硬超时兜底：源站挂死时也能在此时间内返回，避免前端「检测中」卡死。
-            return _run_with_timeout(
+            result = _run_with_timeout(
                 _do_check,
                 CHECK_TIMEOUT,
-                jsonify({
+                {
                     "status": "error",
                     "code": 0,
                     "message": "检测超时：源站响应过慢（%d 秒未返回），已中止" % int(CHECK_TIMEOUT),
-                }),
+                },
             )
+            return jsonify(result)
         except req.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else 0
             return jsonify({"status": "error", "code": status_code, "message": str(e)})
         except req.exceptions.ConnectionError as e:
-            return jsonify({"status": "error", "code": 0, "message": "连接失败：" + str(e)})
+            return jsonify({"status": "error", "code": 0, "message": _classify_connection_error(e)})
         except OSError as e:  # DNS 解析失败等系统层错误（requests 未统一包装）
-            return jsonify({"status": "error", "code": 0, "message": "连接/解析失败：" + str(e)})
+            return jsonify({"status": "error", "code": 0, "message": _classify_connection_error(e)})
         except req.exceptions.Timeout:
             return jsonify({"status": "error", "code": 0, "message": "连接超时"})
         except Exception as e:
