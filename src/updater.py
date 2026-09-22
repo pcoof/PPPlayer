@@ -314,8 +314,10 @@ class Updater:
         try:
             DETACHED = 0x00000008
             CREATE_NEW_PROCESS_GROUP = 0x00000200
+            # 关键修复：bat 路径必须加引号——%TEMP% 在「含空格用户名 / 中文目录」下
+            # 不带引号会被 cmd /c 截断，导致 bat 根本不执行（进程退出后无任何动作）。
             subprocess.Popen(
-                ["cmd", "/c", bat],
+                ["cmd", "/c", f'"{bat}"'],
                 creationflags=DETACHED | CREATE_NEW_PROCESS_GROUP,
                 close_fds=True,
             )
@@ -336,20 +338,30 @@ class Updater:
     def _write_apply_script(self, src, dst, restart_cmd, cwd=None):
         """写一份自删 bat：等待当前 PID 退出 → 复制新文件覆盖 dst → 在 cwd 重启 → 清理。
 
-        src        : 已下载的更新包（exe）
+        src        : 已下载的更新包（exe，已落盘、无需重复下载）
         dst        : 要覆盖的目标文件（冻结态=sys.executable；开发态=项目根 ppplayer.new.exe）
         restart_cmd: 覆盖完成后用于 start 的命令行
         cwd        : 重启前切换到的目录（保证配置/用户数据相对路径一致）
+
+        关键修复（真机常见“退出后啥也没发生”）：
+          1) 以 utf-8-sig(BOM) 写 + 开头 chcp 65001，避免含中文/空格的 src/dst/exe 路径
+             在 GBK 代码页下被 cmd 误读为乱码 → tasklist/copy/start 全部静默失败；
+          2) copy 失败重试（绕过杀软/OS 对被覆盖 exe 的短暂持锁），最多 30 次后即便
+             未覆盖也照常 start 旧 exe，绝不把用户留在“进程退出、应用消失”的死局；
+          3) 各关键步骤写入 %TMP%\\<app>_update.log，便于排查静默失败。
         """
         tmpdir = os.path.join(tempfile.gettempdir(), f"{self.app_name}_update")
         os.makedirs(tmpdir, exist_ok=True)
         bat = os.path.join(tmpdir, f"{self.app_name}_apply.bat")
+        log = os.path.join(tmpdir, f"{self.app_name}_update.log")
         pid = os.getpid()
         cwd_line = f'cd /d "{cwd}"\r\n' if cwd else ""
-        # 用 tasklist /fi 判定 PID 是否还在；find "PID" 命中表头即表示进程仍存在。
-        # 检测到进程消失后额外 ping 2 次（≈2s），确保 OS 释放被覆盖文件的句柄锁。
+        # 模板用普通字符串 + 占位符；cwd_line 单独 f-string 拼接（只含 {cwd}）。
         template = (
             "@echo off\r\n"
+            "chcp 65001 >nul\r\n"
+            'set "LOG={LOG}"\r\n'
+            'echo [%TIME%] apply start, wait PID={PID} >> "%LOG%"\r\n'
             'set "SRC={SRC}"\r\n'
             'set "DST={DST}"\r\n'
             'set "PID={PID}"\r\n'
@@ -359,18 +371,34 @@ class Updater:
             "ping -n 2 127.0.0.1 >nul\r\n"
             "goto wait\r\n"
             ":docopy\r\n"
+            'echo [%TIME%] PID gone, copy new -> dst >> "%LOG%"\r\n'
+            # 额外 ping 2 次（≈2s）：确保旧进程互斥体 Global\\PPPlayer_SingleInstance 已释放，
+            # 否则新 exe 启动即被单实例逻辑判定“已在运行”而秒退。
             "ping -n 2 127.0.0.1 >nul\r\n"
-            'copy /Y "%SRC%" "%DST%" >nul\r\n'
+            "set RETRY=0\r\n"
+            ":copyretry\r\n"
+            'copy /Y "%SRC%" "%DST%" >nul 2>>"%LOG%"\r\n'
+            "if not errorlevel 1 goto startnew\r\n"
+            "set /a RETRY+=1\r\n"
+            "if %RETRY% GEQ 30 goto startnew\r\n"
+            'echo [%TIME%] copy failed (retry %RETRY%), wait 2s >> "%LOG%"\r\n'
+            "ping -n 2 127.0.0.1 >nul\r\n"
+            "goto copyretry\r\n"
+            ":startnew\r\n"
             f"{cwd_line}"
+            'echo [%TIME%] start {RESTART} >> "%LOG%"\r\n'
             'start "" {RESTART}\r\n'
+            'echo [%TIME%] started, cleanup self >> "%LOG%"\r\n'
             'del "%SRC%" >nul 2>nul\r\n'
             '(goto) 2>nul & del "%~f0" >nul 2>nul\r\n'
         )
         content = (template
+                   .replace("{LOG}", log)
                    .replace("{SRC}", src)
                    .replace("{DST}", dst)
                    .replace("{PID}", str(pid))
                    .replace("{RESTART}", restart_cmd))
-        with open(bat, "w", encoding="utf-8") as f:
+        # utf-8-sig 写入 BOM：cmd 据此以 UTF-8 读取，中文/含空格路径不再乱码。
+        with open(bat, "w", encoding="utf-8-sig") as f:
             f.write(content)
         return bat
