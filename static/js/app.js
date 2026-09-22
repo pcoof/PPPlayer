@@ -145,6 +145,23 @@ function app() {
             } catch (e) {}
             window.addEventListener('resize', () => this.calcClasses());
 
+            // 分类导航宽度自适应：用 ResizeObserver 监听导航容器真实渲染宽度，
+            // 一旦布局稳定（首次显示 / 窗口最终尺寸确定 / 字体加载完）即重算可见项，
+            // 不再依赖 $nextTick 的脆弱时机——pywebview 首屏窗口尺寸未 settle 时，
+            // 旧逻辑会在错误的小宽度下把几乎全部分类塞进「更多」，只剩「全部」+「更多」，
+            // 且若 pywebview 创建窗口时不触发 resize 事件，菜单就再也不会自动恢复。
+            if (!this._catNavRO) {
+                const navEl = document.getElementById('typeNavContainer');
+                if (navEl && 'ResizeObserver' in window) {
+                    this._catNavRO = new ResizeObserver(() => { this.calcClasses(); });
+                    this._catNavRO.observe(navEl);
+                }
+            }
+            // 字体可能异步加载完成，加载后文字宽度变化需重算一次
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(() => this.calcClasses()).catch(() => {});
+            }
+
             // 窗口拖拽/缩放由 window-chrome.js 转发鼠标 screenX/screenY，坐标运算在 main.py 的 JsApi 完成，
             // 与窗口样式无关、稳定无抖动（见 index.html 的 .win-edge 与标题栏绑定）。
 
@@ -567,6 +584,16 @@ function app() {
             return c ? c.type_name : '全部';
         },
 
+        scheduleCalcClasses() {
+            // 等浏览器完成至少一次绘制后再测量容器宽度，避免读到未稳定的首屏布局宽度。
+            // 即便此刻仍未就绪，ResizeObserver 会在真实宽度到达时再次触发 calcClasses。
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => requestAnimationFrame(() => this.calcClasses()));
+            } else {
+                this.calcClasses();
+            }
+        },
+
         calcClasses() {
             const container = document.getElementById('typeNavContainer');
             if (!container || !this.classes.length) { this.visibleClasses = this.classes || []; this.hiddenClasses = []; return; }
@@ -579,6 +606,13 @@ function app() {
             const moreSectionWidth = moreBtnWidth + 8;
             const flexRow = container.querySelector('.u-flex.u-items-center.u-py-2');
             if (!flexRow) { this.visibleClasses = this.classes; this.hiddenClasses = []; document.body.removeChild(m); return; }
+            // 容器尚未完成布局（clientWidth 为 0，常见于 x-show 刚切显示 / 首帧未绘制的瞬间）：
+            // 此时测量无意义，直接全部显示作为安全默认，交由 ResizeObserver / rAF 在真实宽度就绪后重算，
+            // 绝不产出「只剩 全部 + 更多」的残缺状态。
+            if (flexRow.clientWidth === 0) {
+                this.visibleClasses = this.classes; this.hiddenClasses = [];
+                document.body.removeChild(m); return;
+            }
             const maxWidth = flexRow.clientWidth - moreSectionWidth;
             this.visibleClasses = []; this.hiddenClasses = [];
             let totalWidth = 0;
@@ -604,7 +638,7 @@ function app() {
                     const cls = JSON.parse(cached);
                     this.allClassesList = cls;
                     this.classes = this.filterClasses(cls);
-                    this.$nextTick(() => this.calcClasses());
+                    this.scheduleCalcClasses();
                     return;
                 } catch (e) {}
             }
@@ -623,7 +657,7 @@ function app() {
                 if (this.currentType !== '0' && !this.classes.some(c => String(c.type_id) === String(this.currentType))) {
                     this.currentType = '0';
                 }
-                this.$nextTick(() => this.calcClasses());
+                this.scheduleCalcClasses();
             } catch (e) {
                 console.warn('loadClasses error:', e);
                 this.classes = []; this.allClassesList = [];
