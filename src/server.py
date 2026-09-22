@@ -7,6 +7,7 @@ from urllib3.util.retry import Retry
 import os
 import sys
 import uuid
+import threading
 
 from .parser.sniffer import parse_play_url
 from .parser.m3u8_filter import filter_m3u8, filter_m3u8_text, USER_AGENT
@@ -14,6 +15,35 @@ from .cms.detector import detect_cms
 from .cms.base import CMSNoSearchError
 from .cms.http import _TlsHappyEyeballsAdapter
 from .config_store import load_all, save_all
+
+
+# 单次源检测的硬超时（秒）。即使源站 DNS/TLS 长时间挂死（requests 的 timeout 不覆盖
+# getaddrinfo 阻塞），也保证 /api/cms/check 在此时间内必定返回，绝不卡死前端「检测中」。
+CHECK_TIMEOUT = 45.0
+
+
+def _run_with_timeout(func, timeout, timeout_result):
+    """在守护线程中执行 func；超时未返回则返回 timeout_result。
+
+    func 自身抛出的异常会原样向上传播（便于外层 except 分支按原逻辑处理）。
+    超时后后台线程随进程退出回收（daemon），不会对前端可见地阻塞。
+    """
+    holder: dict = {}
+
+    def _worker():
+        try:
+            holder["result"] = func()
+        except BaseException as exc:  # 捕获一切异常（含 Timeout/ConnectionError）向上抛
+            holder["error"] = exc
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if "error" in holder:
+        raise holder["error"]
+    if "result" in holder:
+        return holder["result"]
+    return timeout_result
 
 
 def _is_cloudflare_challenge(body: str) -> bool:
@@ -344,7 +374,8 @@ def create_app() -> Flask:
         source = request.args.get("source", "")
         if not source:
             return jsonify({"error": "Missing source"}), 400
-        try:
+
+        def _do_check():
             cms = detect_cms(source)
             # 1) 连通性检测：拉分类列表
             classes = cms.fetch_classes()
@@ -397,6 +428,18 @@ def create_app() -> Flask:
                 "support_search": support_search,   # true / false / null(未知)
                 "search_note": search_note,
             })
+
+        try:
+            # 硬超时兜底：源站挂死时也能在此时间内返回，避免前端「检测中」卡死。
+            return _run_with_timeout(
+                _do_check,
+                CHECK_TIMEOUT,
+                jsonify({
+                    "status": "error",
+                    "code": 0,
+                    "message": "检测超时：源站响应过慢（%d 秒未返回），已中止" % int(CHECK_TIMEOUT),
+                }),
+            )
         except req.exceptions.HTTPError as e:
             status_code = e.response.status_code if e.response else 0
             return jsonify({"status": "error", "code": status_code, "message": str(e)})

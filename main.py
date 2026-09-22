@@ -2,6 +2,7 @@
 
 import sys
 import os
+import tomllib
 import json
 import ctypes
 import time
@@ -14,7 +15,8 @@ FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
 
 # 应用版本（自动更新比对基准）。格式 YYYYMMDD.N。
-# 不在源码中写死版本号：版本在 CI 构建期写入 version.txt 并随 exe 嵌入，
+# 不写死源码：版本以 pyproject.toml 的 [project].version 为唯一来源，
+# CI 构建期改写该字段并随 exe 嵌入（--add-data "pyproject.toml;."），
 # 运行时由 get_app_version() 读取，确保「发布产物内置版本 == Git Tag」，避免更新器误报。
 
 
@@ -26,13 +28,15 @@ def _resource_path(rel):
 
 
 def get_app_version():
-    """读取构建期嵌入的版本号（version.txt）。开发态回退到环境变量 PPPLAYER_VERSION 或 'dev'。"""
+    """读取 pyproject.toml 的 [project].version 作为版本号（随 exe 嵌入）。
+    开发态回退到环境变量 PPPLAYER_VERSION 或 'dev'。"""
     try:
-        with open(_resource_path("version.txt"), "r", encoding="utf-8") as f:
-            v = f.read().strip()
-            if v:
-                return v
-    except OSError:
+        with open(_resource_path("pyproject.toml"), "rb") as f:
+            data = tomllib.load(f)
+        v = (data.get("project") or {}).get("version", "")
+        if v:
+            return str(v)
+    except (OSError, tomllib.TOMLDecodeError):
         pass
     return os.environ.get("PPPLAYER_VERSION", "dev")
 
@@ -41,20 +45,6 @@ GITHUB_REPO = "pcoof/PPPlayer"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"
-
-
-def _parse_app_version(v):
-    """把 'v20260820.1' / '20260820.1' 解析为 (日期int, 序号int) 元组，便于比较大小。"""
-    if not v:
-        return None
-    v = str(v).lstrip('vV')
-    try:
-        parts = v.split('.')
-        date_part = int(parts[0])
-        n_part = int(parts[1]) if len(parts) > 1 else 0
-        return (date_part, n_part)
-    except Exception:
-        return None
 
 
 def ui_invoke(window, fn):

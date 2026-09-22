@@ -56,7 +56,22 @@ const API = {
 
     /** CMS源连接检测 */
     async checkSource(url) {
-        const resp = await fetch('/api/cms/check?source=' + encodeURIComponent(url));
-        return await resp.json();
+        // 前端兜底超时：即使后端因极端情况未返回，也不会让 UI 永远停在「检测中」。
+        // 略大于后端 CHECK_TIMEOUT，避免误伤正常（较慢）检测。
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60000);
+        try {
+            const resp = await fetch('/api/cms/check?source=' + encodeURIComponent(url), {
+                signal: controller.signal,
+            });
+            return await resp.json();
+        } catch (e) {
+            if (e && e.name === 'AbortError') {
+                return { status: 'error', code: 0, message: '检测超时：前端等待超时，已中止' };
+            }
+            throw e;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 };
