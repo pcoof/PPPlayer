@@ -314,10 +314,11 @@ class Updater:
         try:
             DETACHED = 0x00000008
             CREATE_NEW_PROCESS_GROUP = 0x00000200
-            # 关键修复：bat 路径必须加引号——%TEMP% 在「含空格用户名 / 中文目录」下
-            # 不带引号会被 cmd /c 截断，导致 bat 根本不执行（进程退出后无任何动作）。
+            # 用列表形式 ["cmd","/c", bat]，让 subprocess 自行决定引号（路径含空格也安全）。
+            # 切勿写成 f'"{bat}"' 预加引号：subprocess 可能二次包装，导致 cmd 解析失败、
+            # bat 根本未启动（表现为「退出后没然后了」）。
             subprocess.Popen(
-                ["cmd", "/c", f'"{bat}"'],
+                ["cmd", "/c", bat],
                 creationflags=DETACHED | CREATE_NEW_PROCESS_GROUP,
                 close_fds=True,
             )
@@ -365,11 +366,22 @@ class Updater:
             'set "SRC={SRC}"\r\n'
             'set "DST={DST}"\r\n'
             'set "PID={PID}"\r\n'
+            "set WAITCNT=0\r\n"
             ":wait\r\n"
             'tasklist /fi "PID eq %PID%" | find "PID" >nul\r\n'
             "if errorlevel 1 goto docopy\r\n"
+            # 有界等待：给 os._exit(0) 优雅退出留足时间（正常应瞬时退出，1~2 轮即过）。
+            # 若旧进程因任何原因（pywebview GUI 主线程未退、单实例互斥体释放滞后等）
+            # 一直没死，则主动 taskkill /F 结束它，解锁被覆盖的 exe，绝不再永久轮询。
+            "set /a WAITCNT+=1\r\n"
+            "if %WAITCNT% GEQ 20 goto forcekill\r\n"
             "ping -n 2 127.0.0.1 >nul\r\n"
             "goto wait\r\n"
+            ":forcekill\r\n"
+            'echo [%TIME%] PID=%PID% 在等待窗口后仍未退出，强制结束 >> "%LOG%"\r\n'
+            "taskkill /F /PID %PID% >nul 2>&1\r\n"
+            "ping -n 2 127.0.0.1 >nul\r\n"
+            "goto docopy\r\n"
             ":docopy\r\n"
             'echo [%TIME%] PID gone, copy new -> dst >> "%LOG%"\r\n'
             # 额外 ping 2 次（≈2s）：确保旧进程互斥体 Global\\PPPlayer_SingleInstance 已释放，
