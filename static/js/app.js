@@ -37,6 +37,12 @@ function app() {
         catCtxY: 0,
         catCtxTitle: '',
         settingsTab: 'basic',
+        // ── GitHub Gist 云同步 ──
+        gistStatus: { configured: false, bound: false, gist_id: '', gist_url: '', token_mask: '', last_sync_at: '', last_action: '', last_status: 'idle', last_error: '' },
+        gistToken: '',       // 输入框中的 Token（配置成功后清空）
+        gistBusy: '',        // '' | configure | upload | pull
+        gistMsg: '',         // 本次操作反馈文案
+        gistMsgOk: false,
         appVersion: '',
         repoUrl: '',
         releasesUrl: '',
@@ -179,6 +185,8 @@ function app() {
             this.applyBossKey();
             // 拉取版本与仓库信息，供「关于」页展示
             this.fetchVersion();
+            // 加载 GitHub Gist 同步状态（凭据/绑定/最近同步时间，token 只回掩码）
+            this.loadGistStatus();
             // 启动更新状态轮询：后端发现新版本会自动后台下载，就绪后标题栏出现「更新」按钮
             this.startUpdatePoll();
         },
@@ -1065,6 +1073,87 @@ function app() {
             a.href = url; a.download = filename;
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+        },
+
+        // ── GitHub Gist 云同步 ──
+        async loadGistStatus() {
+            try {
+                const resp = await fetch('/api/gist/status');
+                if (resp.ok) this.gistStatus = await resp.json();
+            } catch (e) { console.warn('load gist status error:', e); }
+        },
+        _gistPost(path, body) {
+            return fetch('/api/gist/' + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: body === undefined ? undefined : JSON.stringify(body),
+            }).then(r => r.json());
+        },
+        _gistFeedback(d, okMsg) {
+            if (d && d.ok) {
+                this.gistMsgOk = true;
+                let msg = okMsg || '操作成功';
+                if (d.warning) msg += '｜' + d.warning;
+                if (d.created) msg += '｜已创建新 Gist';
+                this.gistMsg = msg;
+            } else {
+                this.gistMsgOk = false;
+                this.gistMsg = (d && d.error) || '操作失败，请稍后重试';
+            }
+            this.loadGistStatus();
+        },
+        async gistConfigure() {
+            if (!this.gistToken.trim()) { this.gistMsgOk = false; this.gistMsg = '请先填入 GitHub Token'; return; }
+            this.gistBusy = 'configure'; this.gistMsg = '';
+            try {
+                const d = await this._gistPost('configure', { token: this.gistToken.trim() });
+                if (d && d.ok) {
+                    this.gistToken = '';  // 配置成功后清空输入框，避免明文停留
+                    this._gistFeedback(d, d.bound ? '配置成功，已自动绑定已有同步 Gist' : 'Token 配置成功');
+                } else {
+                    this._gistFeedback(d);
+                }
+            } catch (e) { this.gistMsgOk = false; this.gistMsg = '配置失败：' + e; }
+            finally { this.gistBusy = ''; }
+        },
+        async gistUpload() {
+            if (!confirm('将当前本地全部数据上传到 Gist？云端同名数据会被覆盖。')) return;
+            this.gistBusy = 'upload'; this.gistMsg = '';
+            try {
+                const d = await this._gistPost('upload');
+                this._gistFeedback(d, '上传成功');
+                if (d && d.ok && d.counts) this.gistMsg += '（源 ' + d.counts.sources + ' / 收藏 ' + d.counts.fav + ' / 历史 ' + d.counts.his + '）';
+            } catch (e) { this.gistMsgOk = false; this.gistMsg = '上传失败：' + e; }
+            finally { this.gistBusy = ''; }
+        },
+        async gistPull() {
+            if (!confirm('从 Gist 拉取数据？本地全部数据将被云端数据覆盖（凭据不受影响），完成后自动刷新。')) return;
+            this.gistBusy = 'pull'; this.gistMsg = '';
+            try {
+                const d = await this._gistPost('pull');
+                if (d && d.ok) {
+                    this.gistMsgOk = true;
+                    this.gistMsg = '拉取成功（源 ' + (d.counts?.sources ?? 0) + ' / 收藏 ' + (d.counts?.fav ?? 0) + ' / 历史 ' + (d.counts?.his ?? 0) + '），即将刷新…';
+                    setTimeout(() => location.reload(), 800);
+                } else {
+                    this._gistFeedback(d);
+                }
+            } catch (e) { this.gistMsgOk = false; this.gistMsg = '拉取失败：' + e; }
+            finally { this.gistBusy = ''; }
+        },
+        async gistUnbind() {
+            if (!confirm('解除与同步 Gist 的绑定？本地数据不受影响。')) return;
+            this.gistBusy = 'unbind'; this.gistMsg = '';
+            try { this._gistFeedback(await this._gistPost('unbind'), '已解除绑定'); }
+            catch (e) { this.gistMsgOk = false; this.gistMsg = '操作失败：' + e; }
+            finally { this.gistBusy = ''; }
+        },
+        async gistClear() {
+            if (!confirm('清除本地保存的 Token 与绑定信息？此操作不可撤销。')) return;
+            this.gistBusy = 'clear'; this.gistMsg = '';
+            try { this._gistFeedback(await this._gistPost('clear'), '已清除凭据'); }
+            catch (e) { this.gistMsgOk = false; this.gistMsg = '操作失败：' + e; }
+            finally { this.gistBusy = ''; }
         },
 
         exportSources() {

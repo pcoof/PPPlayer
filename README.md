@@ -45,7 +45,10 @@ PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌�
 - **M3U8 智能去广告**（默认开启）— 自动识别并剔除片头 / 片中广告切片（基于切片源目录签名差异与 `#EXT-X-DISCONTINUITY` 分段），只播放正片；关闭则原样加载
 - 主题系统 — 浅色 / 深色 / 跟随系统，叠加 **九套视觉风格**（默认 / NFT / 像素风 / 赛博朋克 / 手绘插画 / 现实·超现实 / 简约 / 未来主义 / 波普艺术），独立组合
 - 数据导入导出（JSON 格式，含收藏 / 历史 / 源 / 配置）
+- **GitHub Gist 云同步**（设置中心 → 数据）— 把全部本地数据同步到你自己的**私密 Gist**，多设备保持一致：配置 GitHub Token 后自动查找并绑定已有同步 Gist（按固定标记识别，**避免重复创建**），支持「上传到 Gist」/「从 Gist 拉取」，界面展示绑定状态、最近同步时间、最近操作结果与错误信息。Token 仅保存在本地 `data/gist_sync.json`、不明文回显、不随数据上传；拉取只覆盖应用数据、不影响凭据。Token 需具备 gist 读写权限（Fine-grained token 需 `Gists: write`）
 - **切源 / 切分类 / 搜索的毛玻璃等待层** — 整页重载时（切换 API 源、切换分类、搜索、首次加载）内容区与导航菜单叠加一层毛玻璃模糊 + 居中加载动画，弱响应期间给出明确反馈；该层被限制在主内容容器内，**绝不遮挡顶部标题栏**（窗口标题栏始终清晰可交互）。无限滚动「加载更多」为增量追加，不触发模糊层
+- **播放页全屏控制栏** — 全屏时鼠标移到**顶部**显示顶栏（返回 / 集数 / 全屏 / 置顶 / 窗口按钮），移到**底部**显示底部控件与「设置 / 选集」入口，静止约 3 秒自动隐藏；顶栏图钉按钮可**固定 / 取消固定**控制栏（固定时常显，状态持久化）。拖动进度条 / 点击控件 / 鼠标悬停 / 设置面板打开时均**不会误隐藏**；窗口模式下顶栏保持常显（兼作拖拽标题栏），原交互不受影响
+- **播放背景切换** — 播放设置中可选「封面」（视频外留白用封面图模糊填充，默认）或「黑底」（纯黑填充），选择持久化
 
 ## 🌴 注意事项
 
@@ -111,9 +114,13 @@ PPPlayer/
 ├── main.py                  # 入口：启动 Flask + pywebview
 ├── README.md
 ├── data/
-│   └── config.json          # 本地配置（源、收藏、历史、设置）
+│   ├── config.json          # 本地配置（源、收藏、历史、设置）—— 即 Gist 同步的数据内容
+│   └── gist_sync.json       # Gist 同步凭据/状态（Token、gist_id、最近同步时间）—— 独立存储，不被同步覆盖
 ├── src/
 │   ├── server.py            # Flask 应用，挂载所有路由
+│   ├── gist_sync.py         # GitHub Gist 数据同步（查找/绑定/上传/拉取）
+│   ├── updater.py           # 应用内更新（检查/下载/自更新重启）
+│   ├── config_store.py      # 配置持久化（config.json 读写）
 │   ├── proxy.py             # HTTP 代理转发（绕过跨域）
 │   ├── cms/
 │   │   ├── base.py          # CMS 抽象基类
@@ -149,6 +156,12 @@ PPPlayer/
 | `GET /api/cms/videos?source=<url>&ac=&pg=&t=&wd=` | 获取视频列表 |
 | `GET /api/cms/detail?source=<url>&id=<id>` | 获取视频详情 |
 | `GET /api/cms/check?source=<url>` | 检测 CMS 源连通性（设置中心「检测连接」调用） |
+| `GET /api/gist/status` | Gist 同步状态（绑定/最近同步时间/错误，Token 只回掩码） |
+| `POST /api/gist/configure` `{token}` | 校验 Token 并自动查找绑定已有同步 Gist |
+| `POST /api/gist/upload` | 上传本地全部数据到 Gist（未绑定则自动查找/创建） |
+| `POST /api/gist/pull` | 从 Gist 拉取并覆盖本地数据 |
+| `POST /api/gist/unbind` / `clear` | 解除绑定 / 清除本地凭据 |
+| `GET /api/update/status` · `POST /api/update/start` · `POST /api/update/apply` | 应用内更新：状态 / 下载 / 应用并重启 |
 | `GET /player` | 弹出式竖滑播放页 |
 
 ## M3U8 智能去广告 + 同源代理

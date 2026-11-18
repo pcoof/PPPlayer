@@ -108,14 +108,17 @@ html.is-web .ts-toprow, html.is-web .pp-topbar { cursor: default; }
 .pp-tab-panel.is-active { display: block; }
 .pp-source-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line, rgba(255, 255, 255, 0.1)); }
 
-/* ===== 全屏状态：隐藏自定义标题栏与边缘缩放热区（对齐原生窗口全屏行为） ===== */
-body.is-fullscreen .pp-topbar, body.is-fullscreen .ts-toprow, body.is-fullscreen .ts-header { display: none !important; }
+/* ===== 全屏状态 =====
+   主窗口（index.html）的标题栏/导航：全屏时彻底隐藏（它没有沉浸控制栏）。
+   播放窗口（player.html）的顶栏 .pp-topbar：不再 display:none，改为「分区显隐」——
+   鼠标移顶部显示、移底部显示底部控件、静止自动隐藏、可置顶固定。见下方 .pp-ctl-* 规则。
+   这样修复「全屏后鼠标移到顶部，顶部控件（返回/集数/全屏/置顶）不显示」的问题。 */
+body.is-fullscreen .ts-toprow, body.is-fullscreen .ts-header { display: none !important; }
 body.is-fullscreen .ts-catnav, body.is-fullscreen #appMain .ts-content-blur { display: none !important; }
 body.is-fullscreen .win-edge { display: none !important; pointer-events: none !important; }
 
-/* 全屏时播放器舞台占满整个视口（标题栏隐藏后无需再留顶部空间） */
+/* 全屏时播放器舞台占满整个视口（标题栏不再占位） */
 body.is-fullscreen .pp-stage { top: 0; }
-body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 */ }
 .ts-badge { position: absolute; top: -4px; right: -2px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; line-height: 1; color: #fff; background: var(--danger); border-radius: 999px; box-shadow: 0 0 0 2px var(--surface); }
 
 /* 搜索 */
@@ -320,6 +323,21 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .ts-info-note-t { font-size: 13px; font-weight: 600; color: var(--accent-strong); }
 .ts-info-note .d { font-size: 12px; color: var(--ink-2); margin-top: 3px; line-height: 1.5; }
 .ts-info-note code { padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 16%, transparent); font-size: 11.5px; }
+
+/* ---------- GitHub Gist 云同步（设置中心-数据） ---------- */
+.ts-gist-section { border-top: 1px solid var(--line); }
+.ts-gist-status { padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.ts-gist-status.is-bound { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-soft); }
+.ts-gist-status-row { display: flex; align-items: center; gap: 8px; }
+.ts-gist-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); flex: 0 0 auto; }
+.ts-gist-dot.is-on { background: #22c55e; box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 22%, transparent); }
+.ts-gist-status-text { font-size: 13px; font-weight: 600; color: var(--ink); }
+.ts-gist-meta { margin-top: 6px; word-break: break-all; }
+.ts-gist-link { color: var(--accent-strong); font-size: 12px; text-decoration: none; }
+.ts-gist-link:hover { text-decoration: underline; }
+.ts-gist-error { margin-top: 6px; color: var(--danger); line-height: 1.5; }
+.ts-gist-msg.is-ok { color: var(--accent-strong); }
+.ts-gist-msg.is-err { color: var(--danger); }
 
 /* ---------- 关于页 ---------- */
 .ts-about-head { display: flex; align-items: center; gap: 14px; }
@@ -598,6 +616,67 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .pp-back:active { transform: scale(.92); }
 .pp-ep-label { font-size: 13px; color: var(--text-dim); letter-spacing: .04em; text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
 
+/* ===== 播放页控制栏分区显隐（仅全屏态生效，由 JS 维护 body 上的 .pp-ctl-* 类） =====
+   设计原则：
+   - 仅在 body.is-fullscreen 下接管；窗口模式顶栏永远常显（它兼作拖拽标题栏）。
+   - 顶部区（鼠标在上缘）→ .pp-ctl-top → 顶栏淡入；底部区 → .pp-ctl-bottom → 底部控件淡入。
+   - 静止一段时间 → JS 移除这两个类 → 全部淡出；置顶（.pp-ctl-pinned）→ 常显不隐藏。
+   - 交互保护由 JS 负责（拖动/点击/播放中/面板打开时不移除类），CSS 只做视觉过渡。
+   用 opacity + transform + pointer-events 而非 display，保证过渡平滑且不打断命中测试。 */
+body.is-fullscreen .pp-topbar {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+body.is-fullscreen.pp-ctl-top .pp-topbar,
+body.is-fullscreen.pp-ctl-pinned .pp-topbar {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* 顶部渐隐遮罩：顶栏显示时给一层从上到下的暗渐变，保证白色控件在亮视频上也清晰 */
+.pp-topbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 96px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .55), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s var(--ease);
+}
+body.is-fullscreen.pp-ctl-top .pp-topbar::before,
+body.is-fullscreen.pp-ctl-pinned .pp-topbar::before { opacity: 1; }
+
+/* 底部控件组（信息卡 / 浮动操作 / 上下切集）：全屏默认淡出，底部区或置顶时淡入。
+   用 :not(:has(...)) 不用——直接给各组在「非显示态」设透明与穿透。 */
+body.is-fullscreen .pp-stage .video-info-bottom,
+body.is-fullscreen .pp-stage .floating-actions,
+body.is-fullscreen .pp-stage .sider-trigger {
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .video-info-bottom,
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .floating-actions,
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .sider-trigger {
+  opacity: 0;
+  pointer-events: none;
+}
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .video-info-bottom { transform: translateY(8px); }
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .floating-actions { transform: translateX(8px); }
+body.is-fullscreen:not(.pp-ctl-bottom):not(.pp-ctl-pinned) .sider-trigger { transform: translateX(8px); }
+
+/* 置顶按钮（图钉）：固定态高亮 */
+.pp-pin-btn.is-pinned { color: var(--accent-strong); background: var(--accent-soft); }
+
+/* 清屏（影院模式）：优先级最高，强制隐藏顶栏与全部自定义浮层，连置顶也让位。
+   XGPlayer 自带控制栏由它自己的 clearScreen 机制隐藏，这里只管我们自定义的 UI。 */
+body.pp-cleared .pp-topbar,
+body.pp-cleared .video-info-bottom,
+body.pp-cleared .floating-actions,
+body.pp-cleared .sider-trigger,
+body.pp-cleared #topEpLabel { opacity: 0 !important; pointer-events: none !important; }
+
 /* 右侧面板（JS 依赖 .tiktok-right-panel-2 / .btn-close-right-panel-2） */
 .tiktok-right-panel-2 { position: fixed; top: 46px; right: 0; bottom: 0; z-index: 40; width: min(440px, 92vw); background: #181510; border-left: 1px solid var(--line); transform: translateX(100%); transition: transform .4s cubic-bezier(.22, 1, .36, 1); display: flex; flex-direction: column; box-shadow: -24px 0 70px rgba(0, 0, 0, .5); }
 .tiktok-right-panel-2.is-open { transform: translateX(0); }
@@ -696,6 +775,12 @@ body.is-fullscreen .pp-topbar ~ * {    /* 标题栏隐藏后，内容区上移 *
 .xgplayer-blur-bg { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: -1; }
 .xgplayer-blur-img { -o-object-fit: fill; object-fit: fill; filter: blur(100px); opacity: .95; }
 img.xgplayer-blur-img { -webkit-touch-callout: none; -webkit-user-select: none; -moz-user-select: none; user-select: none; pointer-events: none; width: 100%; height: 100%; }
+
+/* 播放背景：黑底模式——隐藏模糊封面图，视频外留白用纯黑填充。
+   封面模式（默认）保持上面的 .xgplayer-blur-bg 显示，不额外加类。 */
+body.pp-bg-black .xgplayer-blur-bg { display: none !important; }
+body.pp-bg-black .pp-stage,
+body.pp-bg-black .swiper-slide { background: #000 !important; }
 
 /* XGPlayer 强调色 */
 .xgplayer .xgplayer-progress .xgplayer-progress-played, .xgplayer .xgplayer-volume .xgplayer-volume-bar .xgplayer-volume-fill { background: var(--accent) !important; }

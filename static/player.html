@@ -32,6 +32,12 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             <span id="topEpLabel" class="pp-ep-label"></span>
         </div>
         <div class="pp-win-controls" onmousedown="event.stopPropagation()">
+            <button class="pp-win-btn pp-pin-btn" id="ppPinBtn" title="固定控制栏" aria-label="固定控制栏">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M12 17v5" stroke-linecap="round" />
+                    <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6z" stroke-linejoin="round" />
+                </svg>
+            </button>
             <button class="pp-win-btn" onclick="winFullscreenP()" title="全屏 / 退出全屏" aria-label="全屏">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
                     <path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke-linecap="round" />
@@ -88,6 +94,16 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                                 <div class="pp-setting-hint">视频右侧显示上下集切换按钮</div>
                             </div>
                             <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
+                        </div>
+                        <div class="pp-setting-row">
+                            <div>
+                                <div class="pp-setting-label">播放背景</div>
+                                <div class="pp-setting-hint">视频外的留白区域如何填充</div>
+                            </div>
+                            <div class="ts-seg pp-bg-seg" id="ppBgSeg">
+                                <button data-bg="cover" onclick="setBgMode('cover')">封面</button>
+                                <button data-bg="black" onclick="setBgMode('black')">黑底</button>
+                            </div>
                         </div>
                         <div class="pp-setting-group">
                             <label class="ts-label--checkbox pp-toggle-line u-text-sm u-text-ink-2">
@@ -493,18 +509,31 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                     }
                 });
 
-                // 清屏
+                // 清屏（影院模式）：与全屏控制栏分区显隐协作。
+                // 关键：不再写死 inline opacity=1（会覆盖控制器的 CSS 分区规则，导致静止时控件无法隐藏）。
+                // 清屏开 → 加 body.pp-cleared 强制隐藏所有浮层；清屏关 → 移除该类，把控制权交还控制器。
                 player.on("clearScreen", function (flag) {
                     clearScreenState = flag;
+                    document.body.classList.toggle("pp-cleared", !!flag);
                     var allUi = wrapEl.querySelectorAll(".ui-fade");
                     allUi.forEach(function (el) {
-                        el.style.opacity = flag ? "0" : "1";
-                        el.style.pointerEvents = flag ? "none" : "auto";
+                        if (flag) {
+                            el.style.opacity = "0";
+                            el.style.pointerEvents = "none";
+                        } else {
+                            el.style.opacity = "";
+                            el.style.pointerEvents = "";
+                        }
                     });
                     var topLabel = document.getElementById("topEpLabel");
                     if (topLabel) {
-                        topLabel.style.opacity = flag ? "0" : "1";
-                        topLabel.style.pointerEvents = flag ? "none" : "auto";
+                        if (flag) {
+                            topLabel.style.opacity = "0";
+                            topLabel.style.pointerEvents = "none";
+                        } else {
+                            topLabel.style.opacity = "";
+                            topLabel.style.pointerEvents = "";
+                        }
                     }
                 });
 
@@ -847,6 +876,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             skipIntroTime: 0,
             skipOutro: false,
             skipOutroTime: 0,
+            bgMode: "cover", // 'cover'=用封面作模糊背景；'black'=纯黑底色
         };
 
         function loadPlayerSettings() {
@@ -860,6 +890,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                     ppSettings.skipIntroTime = Number(s.skipIntroTime) || 0;
                     ppSettings.skipOutro = s.skipOutro === true;
                     ppSettings.skipOutroTime = Number(s.skipOutroTime) || 0;
+                    ppSettings.bgMode = s.bgMode === "black" ? "black" : "cover";
                 }
             } catch (e) { }
             autoNextEnabled = ppSettings.autoNext;
@@ -883,11 +914,22 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 tabWrap.style.display = ppSettings.pagination ? "" : "none";
             var tp = document.getElementById("ppTogglePagination");
             if (tp) tp.classList.toggle("on", ppSettings.pagination);
+            // 背景模式 → 封面模糊图显隐；黑底时用纯黑舞台
+            document.body.classList.toggle("pp-bg-black", ppSettings.bgMode === "black");
+            document.querySelectorAll("#ppBgSeg button").forEach(function (b) {
+                b.classList.toggle("is-active", b.dataset.bg === ppSettings.bgMode);
+            });
             syncSkipUI();
         }
         function toggleSetting(key) {
             if (key === "pagination")
                 ppSettings.pagination = !ppSettings.pagination;
+            savePlayerSettings();
+            applyPlayerSettings();
+        }
+        // 播放背景切换：封面模糊 / 纯黑底色（作用于视频外留白区域）
+        function setBgMode(mode) {
+            ppSettings.bgMode = mode === "black" ? "black" : "cover";
             savePlayerSettings();
             applyPlayerSettings();
         }
@@ -1030,6 +1072,188 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             togglePanel(true);
             switchPanelTab("setting");
         }
+
+        // ==================== 全屏控制栏分区显隐控制器 ====================
+        // 目标：全屏时鼠标移顶部→显顶栏、移底部→显底部控件(含设置/选集入口)、静止自动隐藏；
+        //       置顶按钮可固定/取消固定；播放/拖动/点击控件/面板打开时不误隐藏。
+        // 设计：只在 body.is-fullscreen 下接管（窗口模式顶栏常显，兼作拖拽标题栏，原行为不变）。
+        //       状态集中在 ctl 对象，统一由 applyCtl() 投射到 body 的 .pp-ctl-* 类；CSS 只做过渡。
+        //       鼠标交互用 rAF 节流；拖动/点击用 interact 计数保护；定时器统一 reset。
+        var ctl = {
+            zone: "none",          // 'top' | 'bottom' | 'none'
+            pinned: false,         // 置顶固定：固定时全部常显、不自动隐藏
+            interact: 0,           // 交互持有计数（>0 表示正在拖动/操作控件，暂停自动隐藏）
+            timer: null,
+            raf: null,
+            lastY: -1,
+            lastX: -1,
+        };
+        var CTL_IDLE_MS = 3000;    // 静止隐藏延时
+        var CTL_TOP_ZONE = 110;    // 顶部感应高度(px)
+        var CTL_BOTTOM_ZONE = 150; // 底部感应高度(px)
+        var CTL_PIN_KEY = "cms_player_ctl_pinned";
+
+        function isPanelOpen() {
+            var p = document.querySelector(".tiktok-right-panel-2");
+            return !!(p && p.classList.contains("is-open"));
+        }
+
+        // 把 ctl 状态投射到 DOM。pinned 或面板打开时顶栏/底部都保持可见。
+        function applyCtl() {
+            var body = document.body;
+            if (!body.classList.contains("is-fullscreen")) {
+                body.classList.remove("pp-ctl-top", "pp-ctl-bottom", "pp-ctl-pinned");
+                return;
+            }
+            var hold = ctl.pinned || ctl.interact > 0 || isPanelOpen();
+            var showTop = hold || ctl.zone === "top";
+            var showBottom = hold || ctl.zone === "bottom";
+            body.classList.toggle("pp-ctl-top", showTop);
+            body.classList.toggle("pp-ctl-bottom", showBottom);
+            body.classList.toggle("pp-ctl-pinned", ctl.pinned);
+        }
+
+        function ctlResetTimer() {
+            if (ctl.timer) clearTimeout(ctl.timer);
+            ctl.timer = null;
+            if (ctl.pinned || ctl.interact > 0 || isPanelOpen()) return;
+            ctl.timer = setTimeout(function () {
+                // 悬停保护：鼠标虽静止，但若停在控件上（按钮/进度条/信息卡等），
+                // 不隐藏并续时——避免用户正要点击时控件突然消失。
+                var under = null;
+                try { under = document.elementFromPoint(ctl.lastX, ctl.lastY); } catch (e) { }
+                if (isControlTarget(under) && ctl.lastX >= 0) {
+                    ctlResetTimer();
+                    return;
+                }
+                ctl.zone = "none";
+                applyCtl();
+            }, CTL_IDLE_MS);
+        }
+
+        function setCtlZone(zone) {
+            if (ctl.zone === zone) {
+                ctlResetTimer();
+                return;
+            }
+            ctl.zone = zone;
+            applyCtl();
+            ctlResetTimer();
+        }
+
+        // 鼠标移动：rAF 节流 + 分区判定。若移动落在控件/面板上，视为交互，保持分区并续时。
+        function onCtlMove(e) {
+            if (!document.body.classList.contains("is-fullscreen")) return;
+            ctl.lastX = e.clientX;
+            ctl.lastY = e.clientY;
+            if (ctl.raf) return;
+            ctl.raf = requestAnimationFrame(function () {
+                ctl.raf = null;
+                var h = window.innerHeight;
+                var y = ctl.lastY;
+                var zone = "none";
+                if (y <= CTL_TOP_ZONE) zone = "top";
+                else if (y >= h - CTL_BOTTOM_ZONE) zone = "bottom";
+                setCtlZone(zone);
+            });
+        }
+
+        // 交互保护：拖动进度条/音量、点击任意控件期间暂停自动隐藏。
+        // 捕获阶段监听，覆盖 XGPlayer 内部 stopPropagation 的控件。
+        function ctlInteractStart() {
+            ctl.interact++;
+            if (ctl.timer) { clearTimeout(ctl.timer); ctl.timer = null; }
+            applyCtl();
+        }
+        function ctlInteractEnd() {
+            if (ctl.interact > 0) ctl.interact--;
+            applyCtl();
+            ctlResetTimer();
+        }
+        function isControlTarget(t) {
+            if (!t || !t.closest) return false;
+            return !!t.closest(
+                ".pp-topbar, .xgplayer-controls, .floating-actions, " +
+                ".video-info-bottom, .sider-trigger, .tiktok-right-panel-2, " +
+                ".xgplayer-progress, .xgplayer-volume, .xgplayer-slider",
+            );
+        }
+        function bindCtlEvents() {
+            document.addEventListener("mousemove", onCtlMove, true);
+
+            // 鼠标按下落在控件上 → 进入交互保护；松开 → 结束
+            document.addEventListener("mousedown", function (e) {
+                if (isControlTarget(e.target)) ctlInteractStart();
+            }, true);
+            document.addEventListener("mouseup", function () {
+                if (ctl.interact > 0) ctlInteractEnd();
+            }, true);
+
+            // 面板开关：打开时保持控件常显，关闭后恢复计时
+            var panel = document.querySelector(".tiktok-right-panel-2");
+            if (panel) {
+                var obs = new MutationObserver(function () {
+                    applyCtl();
+                    if (isPanelOpen()) {
+                        if (ctl.timer) { clearTimeout(ctl.timer); ctl.timer = null; }
+                    } else {
+                        ctlResetTimer();
+                    }
+                });
+                obs.observe(panel, { attributes: true, attributeFilter: ["class"] });
+            }
+
+            // 置顶按钮
+            var pinBtn = document.getElementById("ppPinBtn");
+            if (pinBtn) {
+                pinBtn.addEventListener("click", function () {
+                    ctl.pinned = !ctl.pinned;
+                    try { localStorage.setItem(CTL_PIN_KEY, ctl.pinned ? "1" : "0"); } catch (e) { }
+                    syncPinBtn();
+                    applyCtl();
+                    ctlResetTimer();
+                });
+            }
+        }
+
+        function syncPinBtn() {
+            var btn = document.getElementById("ppPinBtn");
+            if (!btn) return;
+            btn.classList.toggle("is-pinned", ctl.pinned);
+            btn.title = ctl.pinned ? "取消固定控制栏" : "固定控制栏";
+            btn.setAttribute("aria-label", btn.title);
+        }
+
+        function initCtl() {
+            try { ctl.pinned = localStorage.getItem(CTL_PIN_KEY) === "1"; } catch (e) { }
+            syncPinBtn();
+            bindCtlEvents();
+            // 全屏态变化时重置状态：进入全屏先显顶栏 1 帧再交给 idle；退出全屏清类
+            if (window.WindowChrome) {
+                var prevFs = !!window.WindowChrome.fullscreen;
+                var _onState = window.WindowChrome.onStateChange;
+                window.WindowChrome.onStateChange = function (state) {
+                    if (typeof _onState === "function") _onState(state);
+                    var fs = !!state.fullscreen;
+                    if (fs !== prevFs) {
+                        prevFs = fs;
+                        if (fs) {
+                            ctl.zone = "top";
+                            applyCtl();
+                            ctlResetTimer();
+                        } else {
+                            ctl.zone = "none";
+                            applyCtl();
+                            if (ctl.timer) { clearTimeout(ctl.timer); ctl.timer = null; }
+                        }
+                    } else {
+                        applyCtl();
+                    }
+                };
+            }
+        }
+        // 尽早初始化（顶栏与面板 DOM 已在此 script 之前的 body 中存在）
+        initCtl();
 
         // ==================== 入口 ====================
         console.log("[DEBUG] Player page loaded, starting state fetch...");

@@ -88,7 +88,53 @@ def ui_invoke(window, fn):
         return None
     return box.get('v')
 
-def run_flask(updater=None):
+
+def _set_window_dwm_border(native, hide: bool):
+    """最大化/全屏铺满工作区时去掉 frameless 窗口那圈 1px 半透明 DWM 边框与圆角；
+    还原普通态时完整恢复。必须在 UI(STA) 线程调用（由调用方 ui_invoke 保证）。
+
+    根因：pywebview create_window 默认 shadow=True，创建时用
+    DwmExtendFrameIntoClientArea(hwnd, MARGINS(1,1,1,1)) 给窗口四周扩展 1px 边框。
+    我们的最大化用 native.SetBounds(WorkingArea) 把窗口精确贴到工作区，但那圈 1px
+    半透明边框仍留在窗口外沿——底边被任务栏挡住，于是只看得到顶部和右侧的透明边。
+    pywebview 自带全屏（winforms.py toggle_fullscreen）铺满时也显式调用
+    DwmSetWindowAttribute(33,1) 禁圆角 + (34,NONE) 隐藏边框解决同类问题，
+    这里把同样的处理补到自定义最大化/全屏路径，并在还原时恢复，保证普通态仍有阴影/圆角。
+    """
+    if os.name != 'nt':
+        return
+    try:
+        from ctypes import wintypes, Structure, c_int, byref
+        hwnd = native.Handle.ToInt32()
+        dwm = ctypes.windll.dwmapi
+
+        class _MARGINS(Structure):
+            _fields_ = [
+                ('cxLeftWidth', c_int), ('cxRightWidth', c_int),
+                ('cyTopHeight', c_int), ('cyBottomHeight', c_int),
+            ]
+
+        # 撤销 / 恢复 pywebview 设的 1px 边框扩展（全 0 = 不扩展；1 = pywebview 默认值）
+        m = _MARGINS()
+        if not hide:
+            m.cxLeftWidth = m.cxRightWidth = m.cyTopHeight = m.cyBottomHeight = 1
+        dwm.DwmExtendFrameIntoClientArea(hwnd, byref(m))
+
+        # attr 33 = DWMWA_WINDOW_CORNER_PREFERENCE：1=DONOTROUND（铺满不要圆角），0=默认
+        # attr 34 = DWMWA_BORDER_COLOR：0xFFFFFFFE=DWMWA_COLOR_NONE（隐藏边框），0xFFFFFFFF=默认
+        dwm.DwmSetWindowAttribute.argtypes = [
+            wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+        ]
+        corner = c_int(1 if hide else 0)
+        border = c_int(0xFFFFFFFE if hide else 0xFFFFFFFF)
+        dwm.DwmSetWindowAttribute(hwnd, 33, byref(corner), 4)
+        dwm.DwmSetWindowAttribute(hwnd, 34, byref(border), 4)
+    except Exception as e:
+        # DWM 属性在个别老系统/主题下不可用；绝不能因它影响最大化本身
+        print(f"[_set_window_dwm_border] skipped: {e}")
+
+
+def run_flask(updater=None, gist_sync=None):
     """在独立线程中启动 Flask 服务器"""
     app = create_app()
     # 把版本与仓库信息注入 app.config，供 /api/version 暴露给前端「关于」页
@@ -98,6 +144,8 @@ def run_flask(updater=None):
     app.config['GITHUB_RELEASES_URL'] = GITHUB_RELEASES_URL
     # 应用内更新器单例：与托盘共用同一实例（前端轮询 /api/update/status 取状态）
     app.config['UPDATER'] = updater
+    # GitHub Gist 数据同步单例（凭据独立存储于 data/gist_sync.json）
+    app.config['GIST_SYNC'] = gist_sync
     import logging
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.WARNING)
@@ -1042,40 +1090,55 @@ class JsApi:
     def toggle_maximize_window(self, is_max=False):
         """在「最大化（贴合工作区，保留任务栏）」与「还原」之间切换。
         is_max 由 JS 端传入（window-chrome.js 维护的 per-window 状态），避免主窗/播放窗串扰。
-        frameless 若直接 WindowState=Maximized 会铺满整屏（含任务栏，像全屏），故手动移到 WorkingArea。"""
+
+        关键修复（最大化后遮挡任务栏）：
+        frameless 窗口若直接 WindowState=Maximized 会铺满整屏（含任务栏，等同全屏），
+        必须手动贴合 WorkingArea。旧实现读取 WorkingArea 后改用 pywebview 的
+        w.move()/w.resize() 落地——这套封装按 DPI 逻辑像素解释尺寸，在缩放≠100% 的
+        屏幕上会把物理像素的 WorkingArea 二次放大，窗口超出工作区盖住任务栏。
+        现改为在 UI 线程内用 native.SetBounds(...) 直接设置，与「进入全屏铺满整屏」
+        「退出全屏恢复最大化」走完全相同的 API + 坐标系（见 toggle_fullscreen），
+        尺寸来源与消费端均为 Screen 的物理像素，缩放多少屏都不会溢出。
+        """
         w = self._w
         if not w or not getattr(w, 'native', None):
-            return
-        try:
-            # Screen.FromHandle / WorkingArea 属于原生控件访问 → 切到 UI 线程读取
-            def _work_area():
-                import System.Windows.Forms as WinForms
-                a = WinForms.Screen.FromHandle(w.native.Handle).WorkingArea
-                return (int(a.X), int(a.Y), int(a.Width), int(a.Height))
+            return bool(self._is_maximized)
+        target = bool(is_max)
 
-            _wa = ui_invoke(w, _work_area)
-            if not _wa:
-                return bool(self._is_maximized)
+        def _apply():
+            import System.Windows.Forms as WinForms
+            native = w.native
+            # frameless 窗口已是 FormBorderStyle.None；仅在样式确实不同时才赋值，
+            # 否则重复赋值会触发 RecreateHandle 剥离 WebView2 HWND（RPC_E_DISCONNECTED）。
+            none_style = WinForms.FormBorderStyle(0)  # None
+            if native.FormBorderStyle != none_style:
+                native.FormBorderStyle = none_style
+            normal_state = WinForms.FormWindowState(0)  # Normal
+            if native.WindowState != normal_state:
+                native.WindowState = normal_state
 
-            class _WA:
-                X, Y, Width, Height = _wa
-
-            wa = _WA
-            target = bool(is_max)
             if self._is_maximized and not target:
+                # —— 还原到最大化前的正常几何 ——
                 g = self._restore_geom or (120, 120, 900, 640)
-                w.move(int(g[0]), int(g[1]))
-                w.resize(int(g[2]), int(g[3]))
+                native.SetBounds(int(g[0]), int(g[1]), int(g[2]), int(g[3]))
+                _set_window_dwm_border(native, False)  # 恢复普通态的 1px 阴影边框与圆角
                 self._is_maximized = False
             elif (not self._is_maximized) and target:
-                self._restore_geom = (int(w.x), int(w.y), int(w.width), int(w.height))
-                w.move(int(wa.X), int(wa.Y))
-                w.resize(int(wa.Width), int(wa.Height))
+                # —— 最大化：先记录正常几何，再贴合当前显示器工作区 ——
+                b = native.Bounds
+                self._restore_geom = (int(b.X), int(b.Y), int(b.Width), int(b.Height))
+                wa = WinForms.Screen.FromHandle(native.Handle).WorkingArea
+                native.SetBounds(int(wa.X), int(wa.Y), int(wa.Width), int(wa.Height))
+                _set_window_dwm_border(native, True)  # 去掉 1px 透明边框 + 圆角，贴满工作区不留缝
                 self._is_maximized = True
-        except Exception:
-            pass
-        # 返回切换后的「真实最大化态」，让前端以 Python 端为准，杜绝 JS/Python 状态错位（点击两次才生效）。
-        return bool(self._is_maximized)
+            # 返回切换后的真实最大化态，让前端以 Python 端为准，杜绝 JS/Python 状态错位。
+            return bool(self._is_maximized)
+
+        try:
+            return bool(ui_invoke(w, _apply))
+        except Exception as e:
+            print(f"[toggle_maximize_window] failed: {e}")
+            return bool(self._is_maximized)
 
     def close_window(self):
         if self.kind == 'player':
@@ -1270,16 +1333,19 @@ class JsApi:
                     # 进入前是最大化 → 恢复最大化（贴合工作区，保留任务栏）
                     wa = screen.WorkingArea
                     native.SetBounds(int(wa.X), int(wa.Y), int(wa.Width), int(wa.Height))
+                    _set_window_dwm_border(native, True)  # 仍是最大化态，保持无 1px 边框
                     self._is_maximized = True
                 else:
                     # 进入前是正常态 → 恢复正常几何
                     native.SetBounds(int(self._fs_x), int(self._fs_y), int(self._fs_w), int(self._fs_h))
+                    _set_window_dwm_border(native, False)  # 恢复正常态阴影边框/圆角
                     self._is_maximized = False
             else:
                 # —— 进入全屏 ——
                 self._is_fullscreen = True
                 b = screen.Bounds
                 native.SetBounds(int(b.X), int(b.Y), int(b.Width), int(b.Height))
+                _set_window_dwm_border(native, True)  # 铺满整屏同样去掉圆角/边框，避免露边
             # 返回当前状态供前端同步（最大化态 + 全屏态）
             return {'maximized': bool(self._is_maximized), 'fullscreen': bool(self._is_fullscreen)}
 
@@ -1311,8 +1377,11 @@ def main() -> None:
     _current_version = get_app_version()
     print(f"[App] 当前版本：{_current_version}")
     updater = Updater(_current_version, GITHUB_REPO, "PPPlayer")
+    # GitHub Gist 数据同步单例（与前端「设置中心-数据」共用）
+    from src.gist_sync import GistSync
+    gist_sync = GistSync("PPPlayer")
 
-    flask_thread = threading.Thread(target=lambda: run_flask(updater), daemon=True)
+    flask_thread = threading.Thread(target=lambda: run_flask(updater, gist_sync), daemon=True)
     flask_thread.start()
 
     player_mgr = PlayerWindow(FLASK_PORT)

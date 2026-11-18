@@ -520,6 +520,54 @@ def create_app() -> Flask:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    # ── GitHub Gist 数据同步 ──
+    # 同步器单例由 main.py 在 run_flask 中注入 app.config['GIST_SYNC']。
+    def _gist_sync():
+        return app.config.get("GIST_SYNC")
+
+    @app.route("/api/gist/status")
+    def api_gist_status():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"configured": False, "bound": False, "last_status": "idle"})
+        return jsonify(g.get_status())
+
+    @app.route("/api/gist/configure", methods=["POST"])
+    def api_gist_configure():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"ok": False, "error": "同步功能不可用"}), 500
+        token = (request.get_json(force=True) or {}).get("token", "")
+        return jsonify(g.configure(token))
+
+    @app.route("/api/gist/unbind", methods=["POST"])
+    def api_gist_unbind():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"ok": False, "error": "同步功能不可用"}), 500
+        return jsonify(g.unbind())
+
+    @app.route("/api/gist/clear", methods=["POST"])
+    def api_gist_clear():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"ok": False, "error": "同步功能不可用"}), 500
+        return jsonify(g.clear_token())
+
+    @app.route("/api/gist/upload", methods=["POST"])
+    def api_gist_upload():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"ok": False, "error": "同步功能不可用"}), 500
+        return jsonify(g.upload())
+
+    @app.route("/api/gist/pull", methods=["POST"])
+    def api_gist_pull():
+        g = _gist_sync()
+        if not g:
+            return jsonify({"ok": False, "error": "同步功能不可用"}), 500
+        return jsonify(g.pull())
+
     @app.route("/api/version")
     def api_version():
         """返回应用版本与 GitHub 仓库信息，供「关于」页展示（值由 main.py 在启动时注入 app.config）。"""
