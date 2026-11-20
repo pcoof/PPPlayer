@@ -1,21 +1,21 @@
 <h1 align="center">
   <img src="static/logo.svg" alt="ppplayer" width="300" />
   <br>
-  <a href="https://github.com/pcoof/ppplayer/releases">PPPlayer 桌面版</a>
+  <a href="https://github.com/pcoof/PPPlayer/releases">PPPlayer 桌面版</a>
   <br>
 </h1>
 <div align="center">
 
-[![](https://img.shields.io/github/v/release/pcoof/ppplayer?label=Release&logo=github)](/)
-[![](https://img.shields.io/badge/license-MIT-blue.svg)]()
-[![](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![](https://img.shields.io/github/v/release/pcoof/PPPlayer?label=Release&logo=github)](https://github.com/pcoof/PPPlayer/releases)
+[![](https://img.shields.io/badge/license-MIT-blue.svg)](#许可证)
+[![](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)](https://www.python.org/)
 </div>
 <div align="center">
 
-[![](https://raw.githubusercontent.com/CodePhiliaX/resource-trusteeship/main/readmex.svg)](https://readmex.com/pcoof/ppplayer)
-[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/pcoof/ppplayer)
+[![](https://raw.githubusercontent.com/CodePhiliaX/resource-trusteeship/main/readmex.svg)](https://readmex.com/pcoof/PPPlayer)
+[![](https://deepwiki.com/badge.svg)](https://deepwiki.com/pcoof/PPPlayer)
 [![](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff
-)](https://zread.ai/pcoof/ppplayer)
+)](https://zread.ai/pcoof/PPPlayer)
 [![](https://img.shields.io/badge/图表-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=digitalocean)](https://gitdiagram.com/pcoof/PPPlayer)
 
 
@@ -33,6 +33,22 @@ PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌�
 - **Flask** — 内置 HTTP 服务器（`127.0.0.1:19527`，嵌入 pywebview）
 - **前端** — 原生 CSS（单一设计系统 `style.css`，含语义化组件类 + 轻量工具类层 `u-*`）+ Alpine.js + HLS.js + XGPlayer（弹出播放页）
 
+## 界面预览
+
+截图存放于 [`doc/img/`](doc/img/)，更多说明见 [文档索引](doc/README.md)。
+
+| 主界面 · 卡片墙瀑布流 | 设置中心 · 基础 |
+|:---:|:---:|
+| ![主界面](doc/img/main.png) | ![设置中心-基础](doc/img/base.png) |
+
+| 设置中心 · 布局（卡片标签自定义） | 设置中心 · API 源 |
+|:---:|:---:|
+| ![设置中心-布局](doc/img/layout.png) | ![设置中心-API源](doc/img/api.png) |
+
+| 编辑 API 源 | 设置中心 · 数据（Gist 云同步） |
+|:---:|:---:|
+| ![编辑API源](doc/img/edit-api.png) | ![设置中心-数据](doc/img/data.png) |
+
 ## 功能
 
 - 多 CMS 源支持（苹果CMS JSON / 飞飞CMS XML / 海洋CMS 自动适配）
@@ -49,6 +65,8 @@ PPPlayer 是一款基于 **Python + pywebview** 的开源视频聚合播放桌�
 - **切源 / 切分类 / 搜索的毛玻璃等待层** — 整页重载时（切换 API 源、切换分类、搜索、首次加载）内容区与导航菜单叠加一层毛玻璃模糊 + 居中加载动画，弱响应期间给出明确反馈；该层被限制在主内容容器内，**绝不遮挡顶部标题栏**（窗口标题栏始终清晰可交互）。无限滚动「加载更多」为增量追加，不触发模糊层
 - **播放页全屏控制栏** — 全屏时鼠标移到**顶部**显示顶栏（返回 / 集数 / 全屏 / 置顶 / 窗口按钮），移到**底部**显示底部控件与「设置 / 选集」入口，静止约 3 秒自动隐藏；顶栏图钉按钮可**固定 / 取消固定**控制栏（固定时常显，状态持久化）。拖动进度条 / 点击控件 / 鼠标悬停 / 设置面板打开时均**不会误隐藏**；窗口模式下顶栏保持常显（兼作拖拽标题栏），原交互不受影响
 - **播放背景切换** — 播放设置中可选「封面」（视频外留白用封面图模糊填充，默认）或「黑底」（纯黑填充），选择持久化
+- **GitHub 更新镜像回退** — 检查更新与下载均**先直连 GitHub**，遇到连接失败 / 非 200 / 下载流中断时自动改用 `https://cdn.gh-proxy.org/` 镜像重试，解决国内网络下 GitHub 不可达导致「检查更新没反应」；两路都失败才明确报错。Gist 同步含 Token，**不走第三方镜像**
+- **滚动条跟随主题** — 主内容、设置面板、播放器侧栏、选集列表等所有滚动区域的滚动条颜色统一取主题令牌（`--line-strong` / `--ink-3`），深浅色与九套视觉风格切换时自动同步
 
 ## 🌴 注意事项
 
@@ -76,70 +94,87 @@ uv run main.py
 
 首次启动会自动打开 pywebview 窗口（1280×800），标题为 "PPPlayer"。
 
-## 构建与发布（Windows 单文件 exe）
+## Docker 本地 Web 冒烟测试
 
-本项目通过 GitHub Actions（`.github/workflows/build.yml`）自动构建并发布 **Windows 单文件 exe**。
-
-流程（推送到 `main` 或手动触发 `Build & Release` 工作流即自动执行）：
-
-1. `calc-version`：计算版本号 `YYYYMMDD.N`（检索当日最大 Tag 序号 +1）。
-2. `build-package`：在 `windows-latest` 上用 `uv` + PyInstaller 产出单文件 exe（`--onefile --noconsole --icon=logo.ico`）；构建期把版本写回 `pyproject.toml` 的 `[project].version` 并随 exe 嵌入（源码不再写死版本号），再打包为便携 zip 上传 artifact。
-3. `release`：生成 CHANGELOG、幂等创建 Git Tag、发布 GitHub Release 并上传全部产物。
-
-产物：`ppplayer.exe`（单文件）与 `ppplayer-portable.zip`（便携包）。
-
-本地手动构建（与 CI 等价）：
+只想验证 Flask 服务、静态页面、API 与配置挂载（不启动 pywebview 桌面窗口）时，可以使用本地镜像：
 
 ```bash
-uv sync --frozen
-uv run pyinstaller --onefile --noconsole --icon=logo.ico --name=ppplayer \
-  --add-data "static;static" \
-  --add-data "pyproject.toml;." \
-  --hidden-import clr --hidden-import pythonnet \
-  --hidden-import webview.platforms.edgechromium --hidden-import webview.platforms.winforms \
-  --hidden-import src --hidden-import src.server --hidden-import src.config_store \
-  --hidden-import src.parser.sniffer --hidden-import src.parser.m3u8_filter \
-  --hidden-import src.cms --hidden-import src.cms.detector --hidden-import src.cms.base \
-  --hidden-import src.cms.apple_cms --hidden-import src.cms.feifei_cms \
-  --hidden-import src.cms.haiyang_cms --hidden-import src.cms.endpoint \
-  --collect-all pythonnet \
-  main.py --noconfirm --clean
+docker compose up -d --build
+docker compose logs -f web
+docker compose ps
 ```
+
+浏览器访问：
+
+- `http://localhost:19528/` — 主页面
+- `http://localhost:19528/player` — 播放页面
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+> 注意：容器只做 Web 冒烟测试，不启动 pywebview，无法验证独立播放器窗口居中、置顶、拖拽、全屏等桌面能力；这些必须在 Windows 真机执行 `uv run main.py` 验证。容器与桌面端不要同时运行并共用同一份 `data/`，避免配置互相覆盖。
+
+## 构建与发布（Windows 单文件 exe）
+
+通过 GitHub Actions（`.github/workflows/build.yml`）自动构建发布 **Windows 单文件 exe**，产物为 `ppplayer.exe`（单文件）与 `ppplayer-portable.zip`（便携包）。构建期写回版本号并嵌入 Windows 版本资源，源码不维护固定版本常量。
+
+CI 流程、本地打包命令、版本号来源与应用内自更新的完整说明见 **[构建与发布](doc/构建与发布.md)**。
 
 ## 项目结构
 
 ```
 PPPlayer/
-├── pyproject.toml           # uv 项目配置
-├── main.py                  # 入口：启动 Flask + pywebview
-├── README.md
-├── data/
-│   ├── config.json          # 本地配置（源、收藏、历史、设置）—— 即 Gist 同步的数据内容
-│   └── gist_sync.json       # Gist 同步凭据/状态（Token、gist_id、最近同步时间）—— 独立存储，不被同步覆盖
+├── pyproject.toml           # uv 项目配置（版本号唯一来源：project.version）
+├── uv.lock                  # 依赖锁文件
+├── Dockerfile               # 本地 Web 测试镜像（最小依赖，不导入 main.py）
+├── docker-compose.yml       # 本地 Web 冒烟测试服务（19528 -> 19527）
+├── .dockerignore            # 排除桌面端/临时文件，缩小镜像构建上下文
+├── requirements.web.txt     # 容器 Web 测试最小依赖
+├── main.py                  # 入口：启动 Flask + pywebview、托盘、窗口管理、系统事件
+├── README.md                # 本文件
+├── logo.ico                 # 应用图标
+├── .github/workflows/
+│   └── build.yml            # CI：版本计算 + 打包 + 版本资源 + 发布 Release
+├── data/                    # 运行时生成（首次启动后存在）
+│   ├── config.json          # 本地配置（源、收藏、历史、设置）—— Gist 同步的数据内容
+│   └── gist_sync.json       # Gist 凭据/状态（Token、gist_id、最近同步时间）—— 独立存储，不被同步覆盖
+├── doc/                     # 文档与截图
+│   ├── README.md            # 文档索引
+│   ├── 构建与发布.md         # CI / 打包 / 版本 / 自更新
+│   ├── M3U8去广告与同源代理.md # 播放列表过滤与同源代理原理
+│   └── img/                 # 界面截图（main / base / layout / api / edit-api / data）
 ├── src/
 │   ├── server.py            # Flask 应用，挂载所有路由
 │   ├── gist_sync.py         # GitHub Gist 数据同步（查找/绑定/上传/拉取）
-│   ├── updater.py           # 应用内更新（检查/下载/自更新重启）
+│   ├── updater.py           # 应用内更新（检查/下载/镜像回退/自更新重启）
 │   ├── config_store.py      # 配置持久化（config.json 读写）
-│   ├── proxy.py             # HTTP 代理转发（绕过跨域）
 │   ├── cms/
 │   │   ├── base.py          # CMS 抽象基类
+│   │   ├── detector.py      # CMS 类型自动检测
+│   │   ├── endpoint.py      # 接口地址拼接与容错
+│   │   ├── http.py          # 网络请求（IPv4 优先 / TLS Happy Eyeballs / 绕系统代理）
 │   │   ├── apple_cms.py     # 苹果CMS (JSON API)
 │   │   ├── feifei_cms.py    # 飞飞CMS (XML API)
-│   │   ├── haiyang_cms.py   # 海洋CMS (XML/JSON API)
-│   │   └── detector.py      # CMS 类型自动检测
+│   │   └── haiyang_cms.py   # 海洋CMS (XML/JSON API)
 │   └── parser/
 │       ├── sniffer.py       # 媒体嗅探器
 │       └── m3u8_filter.py   # M3U8 智能广告过滤
 └── static/
     ├── index.html           # 前端主页面（Alpine.js）
     ├── player.html          # 弹出播放页（XGPlayer 竖滑）
+    ├── logo.svg / logo.ico  # 前端 Logo
+    ├── thumb.svg            # 卡片占位图
     ├── css/
     │   └── style.css        # 设计系统「纸上观影 / Paper & Reel」+ 工具类层
-    └── js/
-        ├── api.js           # API 调用封装
-        ├── app.js           # 主应用逻辑 (Alpine.js)
-        └── window-chrome.js # 无边框窗口拖拽 / 缩放 / Aero Snap
+    ├── js/
+    │   ├── api.js           # API 调用封装
+    │   ├── app.js           # 主应用逻辑 (Alpine.js)
+    │   ├── window-chrome.js # 无边框窗口拖拽 / 缩放 / Aero Snap
+    │   └── alpine.min.js    # Alpine.js（本地内联依赖）
+    └── vendor/              # 第三方前端库（XGPlayer / Swiper / HLS.js 等）
 ```
 
 ## API 路由
@@ -166,23 +201,13 @@ PPPlayer/
 
 ## M3U8 智能去广告 + 同源代理
 
-播放全程**只与本地 Flask 服务（127.0.0.1:19527）同源通信**，从根本上规避「CDN 不返回 `Access-Control-Allow-Origin` 头导致浏览器跨域失败」（典型表现：控制台报 CORS 错误、状态 200 但「无法加载响应数据」、或用 VLC 等能播但浏览器里黑屏）。
-
-流程：
-
-1. 前端把播放地址交给 `/api/hls?url=<编码地址>`（直链视频/切片则交给 `/api/media?url=`），**不再由浏览器直连 CDN**；
-2. 后端 `m3u8_filter.py` 拉取播放列表、按 discontinuity 切段、以切片目录签名归并视频源、保留总时长最长的正片源、丢弃所有 discontinuity，输出干净的单一 VOD 列表；
-3. 过滤后的列表里**所有 CDN 地址**（嵌套变体 → `/api/hls`、切片/密钥/字幕 → `/api/media`）被统一改写为本服务同源代理地址；
-4. 浏览器只请求本服务，切片经 `/api/media` 转发（支持 `Range` 拖动），彻底无跨域。
-
-> 智能去广告开关为设置中心 → 基础 → **智能去广告**（对应 `data/config.json` 中 `cms_cfg.smartAdRemove`，默认 `true`）。
-
-> Flask 使用 `threaded=True` 并发处理「页面 + 播放列表 + 多切片」的并行请求，并对重复地址做 20s TTL 缓存，速度接近直连。
+播放全程**只与本地 Flask 服务（127.0.0.1:19527）同源通信**，从根源规避 CDN 跨域失败；后端按 discontinuity 切段、归并正片源、剔除广告，并把所有 CDN 地址改写为同源代理。原理、流程图与相关路由见 **[M3U8 智能去广告 + 同源代理](doc/M3U8去广告与同源代理.md)**。
 
 ## 主题与风格
 
 - 浅色 / 深色 / 跟随系统（设置中心 → 基础 → 主题）
 - 九套视觉风格（设置中心 → 基础 → 主题风格），与明暗模式独立组合，由 `style.css` 中 `html[data-theme="..."]` 令牌覆盖实现
+- 独立播放器页（`/player` 与弹出播放器窗口）固定夜间主题 + 默认视觉风格，不随主应用主题/风格切换；播放背景的封面 / 黑底模式仍可切换
 
 ## 许可证
 

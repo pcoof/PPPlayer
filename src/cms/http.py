@@ -38,6 +38,11 @@ import urllib3
 from urllib3.connection import HTTPSConnection
 from urllib3.connectionpool import HTTPSConnectionPool
 
+from ..net_proxy import SystemCertAdapter, bind_session, inject_system_ssl_context
+
+# 系统代理统一策略见 src/net_proxy.py。CMS 会话只按策略设置 trust_env；
+# 让 MITM 代理证书通过校验的是适配器里注入的系统根证书 ssl_context。
+
 # 完整 Chrome UA —— 避免被源站/WAF 因 UA 异常（截断、空）而 RST/403。
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -300,9 +305,15 @@ class _TlsHappyEyeballsHTTPSConnectionPool(HTTPSConnectionPool):
 
 
 class _TlsHappyEyeballsAdapter(HTTPAdapter):
-    """让 HTTPS 连接池使用支持 TLS 层 Happy Eyeballs 的连接类。"""
+    """让 HTTPS 连接池使用支持 TLS 层 Happy Eyeballs 的连接类，并用系统根证书校验。
+
+    init_poolmanager 覆盖：注入系统根证书 + 替换 https pool class；
+    proxy_manager_for 覆盖：走系统代理时同样注入系统根证书（否则 MITM 代理自签
+    根 CA 不被 certifi 信任，报 CERTIFICATE_VERIFY_FAILED）。
+    """
 
     def init_poolmanager(self, *args, **kwargs):
+        inject_system_ssl_context(kwargs)
         super().init_poolmanager(*args, **kwargs)
         try:
             pm = getattr(self, "poolmanager", None)
@@ -311,14 +322,16 @@ class _TlsHappyEyeballsAdapter(HTTPAdapter):
         except Exception:
             pass
 
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        inject_system_ssl_context(proxy_kwargs)
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
+
 
 def _build_session() -> _PreferIpv4Session:
     s = _PreferIpv4Session()
-    # 绕开系统代理/VPN/爬虫工具注入的 HTTP_PROXY/HTTPS_PROXY：本应用直连源站，
-    # 由上面的 IPv4 强制 + TLS Happy Eyeballs 直接处理 CDN 多节点；若让请求走系统
-    # 代理会触发 MITM 重签证书(之前那条 CERTIFICATE_VERIFY_FAILED)并破坏 Happy Eyeballs。
-    # 代理只影响用户浏览器，不影响本软件。
-    s.trust_env = False
+    # trust_env 由 src/net_proxy.py 的统一策略设置：默认 True（与浏览器一致，走系统
+    # 代理），用户可在设置中心关闭回到旧行为（强制直连，规避代理工具干扰）。
+    # IPv4 强制 + TLS Happy Eyeballs 始终启用，与是否走代理无关。
     s.headers.update(
         {
             "User-Agent": _USER_AGENT,
@@ -337,6 +350,7 @@ def _build_session() -> _PreferIpv4Session:
 
 # 单例：CMS 全链路（探测 / 分类 / 列表 / 详情）共用，享受 keep-alive 与自动重试。
 cms_session: _PreferIpv4Session = _build_session()
+bind_session(cms_session)  # 策略切换（设置中心开关）时实时同步 trust_env
 
 
 # ── Cloudflare 等「浏览器验证」墙识别与浏览器引擎回退 ──────────

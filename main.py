@@ -9,7 +9,7 @@ import time
 import threading
 import webview
 from urllib import parse
-from src.server import create_app
+from src.server import create_app, clear_popout_state
 
 FLASK_HOST = "127.0.0.1"
 FLASK_PORT = 19527
@@ -45,6 +45,11 @@ GITHUB_REPO = "pcoof/PPPlayer"
 GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_REPO_URL = f"https://github.com/{GITHUB_REPO}"
+
+# 独立播放器窗口：视频画面铺满整个窗口（标题栏/控制栏均以浮层叠加在画面上），
+# 因此窗口宽高比直接等于视频原生宽高比，不再为控件条预留额外高度。
+# 注：XGPlayer 自带的 .xg-video-container 默认 bottom:48px 会预留控件条空间，
+# 已由 style.css 覆盖为 bottom:0，与这里的比例计算配套。
 
 
 def ui_invoke(window, fn):
@@ -134,8 +139,60 @@ def _set_window_dwm_border(native, hide: bool):
         print(f"[_set_window_dwm_border] skipped: {e}")
 
 
+def _logical_work_area(window):
+    """返回窗口所在屏幕的 WorkingArea，并换算成 pywebview 使用的逻辑像素。
+
+    pywebview 的 create_window / window.move / window.resize 与 window.x/y/width/height
+    都是逻辑像素；WinForms 的 Screen.WorkingArea 是物理像素。DPI 非 100% 时若混用，
+    窗口会被二次放大且居中偏移。这里用 GetDpiForWindow(handle)/96 与 pywebview 后端
+    保持同一套换算；任何异常都回退 None，让调用方使用原来的保守兜底。
+    """
+    if not window or os.name != 'nt':
+        return None
+    try:
+        native = getattr(window, 'native', None)
+        if native is None:
+            return None
+        import System.Windows.Forms as WinForms
+        scr = WinForms.Screen.FromHandle(native.Handle)
+        wa = scr.WorkingArea
+        scale = 1.0
+        try:
+            hwnd = int(native.Handle.ToInt32())
+            dpi = int(ctypes.windll.user32.GetDpiForWindow(hwnd))
+            if dpi > 0:
+                scale = dpi / 96.0
+        except Exception:
+            pass
+        return (
+            int(round(wa.X / scale)),
+            int(round(wa.Y / scale)),
+            int(round(wa.Width / scale)),
+            int(round(wa.Height / scale)),
+        )
+    except Exception as e:
+        print(f"[_logical_work_area] skipped: {e}")
+        return None
+
+
+def _centered_origin(work_area, width, height):
+    """在逻辑工作区内计算居中起点，并做基本边界钳制。"""
+    if not work_area:
+        return None
+    ax, ay, aw, ah = work_area
+    x = ax + max(0, (int(aw) - int(width)) // 2)
+    y = ay + max(0, (int(ah) - int(height)) // 2)
+    return int(x), int(y)
+
+
 def run_flask(updater=None, gist_sync=None):
     """在独立线程中启动 Flask 服务器"""
+    # 启动时加载系统代理策略（cms/media/updater/gist 的 Session 已在导入时绑定）
+    try:
+        from src import net_proxy
+        net_proxy.reload()
+    except Exception:
+        pass
     app = create_app()
     # 把版本与仓库信息注入 app.config，供 /api/version 暴露给前端「关于」页
     app.config['APP_VERSION'] = get_app_version()
@@ -168,7 +225,9 @@ class PlayerWindow:
     def __init__(self, port, main_window=None):
         self.port = port
         self._player_window = None
+        self._active_playback_session = ''  # 当前活动播放会话 ID（关闭清理/进度上报都按它校验）
         self._main_window = main_window
+        self._player_topmost = False   # 独立播放器窗口「窗口置顶」偏好（持久化到 player_geometry.json）
         self.bosskey = None       # BossKeyManager（老板键全局热键）
         self.tray = None          # TrayManager（系统托盘）
 
@@ -198,11 +257,14 @@ class PlayerWindow:
         return func(*args, **kwargs)
 
     def _load_geometry(self):
-        """读取已保存的窗口几何信息"""
+        """读取已保存的窗口几何信息（含独立播放器窗口的置顶偏好）"""
         try:
             if os.path.exists(self.GEOMETRY_FILE):
                 with open(self.GEOMETRY_FILE, 'r', encoding='utf-8') as f:
-                    return json.loads(f.read())
+                    geom = json.loads(f.read())
+                    if isinstance(geom, dict):
+                        self._player_topmost = bool(geom.get('topmost', False))
+                    return geom
         except Exception:
             pass
         return None
@@ -218,9 +280,27 @@ class PlayerWindow:
                 height = window.height
                 os.makedirs(os.path.dirname(self.GEOMETRY_FILE), exist_ok=True)
                 with open(self.GEOMETRY_FILE, 'w', encoding='utf-8') as f:
-                    json.dump({"x": x, "y": y, "width": width, "height": height}, f)
+                    json.dump({
+                        "x": x, "y": y, "width": width, "height": height,
+                        "topmost": bool(self._player_topmost),
+                    }, f)
         except Exception:
             pass
+
+    def set_player_topmost(self, enabled):
+        """JS API 后端：设置独立播放器窗口始终置顶（WinForms TopMost）。
+
+        只对播放窗口生效；主窗口不受影响。设置同时持久化，
+        下次 open_player_window 重建窗口时直接带入 on_top 初值。
+        """
+        enabled = bool(enabled)
+        self._player_topmost = enabled
+        w = self._player_window
+        if w:
+            # on_top 的 setter 直接操作 WinForms Form.TopMost（未经 pywebview 线程编组），
+            # 必须切回 UI(STA) 线程，否则跨线程改原生窗口有 RPC_E_DISCONNECTED 风险。
+            ui_invoke(w, lambda: setattr(w, 'on_top', enabled))
+        self._save_geometry(w)
 
     def show_main_window(self):
         """JS API: 显示并聚焦主窗口"""
@@ -253,91 +333,164 @@ class PlayerWindow:
                 pass
 
     def open_player_window(self, state_json=""):
-        """JS API: 打开独立无标题栏播放窗口，state_json 为播放状态 JSON 字符串"""
+        """JS API: 打开独立无标题栏播放窗口，state_json 为播放状态 JSON 字符串。
+
+        单实例约束：已有播放窗口时先走完整 close_player()（保存几何、清后端状态槽、
+        清主界面播放条），再创建新窗口。旧实现直接 destroy，绕过清理，导致 bar 残留。
+        """
         from src.server import set_popout_state
 
+        # 先完整关闭旧会话，避免旧窗口迟到事件污染新会话
+        if self._player_window:
+            self.close_player()
+
+        session_id = ''
         if state_json:
             try:
                 state = json.loads(state_json)
                 set_popout_state(state)
+                if isinstance(state, dict):
+                    session_id = str(state.get('sessionId') or '')
             except Exception:
                 pass
-
-        if self._player_window:
-            try:
-                self._run_on_ui(self._player_window.destroy)
-            except Exception:
-                pass
+        self._active_playback_session = session_id
 
         player_url = f"http://{FLASK_HOST}:{self.port}/player"
 
-        geom = self._load_geometry()
+        geom = self._load_geometry() or {}
         # 每个窗口使用独立的 JS 桥接对象，避免多窗口共用 js_api 导致状态/目标串扰
         player_api = JsApi(self, 'player')
         kwargs = {
             "title": "PPPlayer",
             "url": player_url,
-            "min_size": (360, 640),
+            "min_size": (320, 240),  # 横屏视频也需要能缩到 720p 以下，避免被迫产生黑边
             "resizable": True,
             "frameless": True,
             "easy_drag": False,
-            "on_top": False,
+            "on_top": bool(self._player_topmost),  # 窗口置顶偏好（跨重开窗口保持）
             "js_api": player_api,
         }
-        if geom:
-            kwargs["x"] = geom.get("x", 0)
-            kwargs["y"] = geom.get("y", 0)
-            kwargs["width"] = geom.get("width", 480)
-            kwargs["height"] = geom.get("height", 854)
-        else:
-            kwargs["width"] = 480
-            kwargs["height"] = 854
+
+        # 打开即居中：几何文件只保留宽高/置顶，x/y 由当前工作区重新计算。
+        # 参考窗口优先取主窗口所在屏（播放器通常从主窗口弹出）；拿不到时让
+        # pywebview 自己 CenterScreen。所有尺寸/坐标均为逻辑像素。
+        width = max(320, int(geom.get("width", 480) or 480))
+        height = max(240, int(geom.get("height", 854) or 854))
+        wa = _logical_work_area(self._main_window or self._player_window)
+        if wa:
+            src_w, src_h = width, height
+            max_w = max(320, int(wa[2] * 0.8))
+            max_h = max(240, int(wa[3] * 0.8))
+            if src_w > max_w:
+                width, height = max_w, int(round(src_h * max_w / float(src_w)))
+            if height > max_h:
+                width, height = int(round(width * max_h / float(height))), max_h
+            width = max(320, int(width))
+            height = max(240, int(height))
+            origin = _centered_origin(wa, width, height)
+            if origin:
+                kwargs["x"], kwargs["y"] = origin
+        kwargs["width"] = width
+        kwargs["height"] = height
 
         self._player_window = webview.create_window(**kwargs)
         player_api.attach(self._player_window)
         self._player_api = player_api
 
+        # 原生 X / Alt+F4 关闭也要清理主界面状态。closing 事件在 UI(STA) 线程同步执行，
+        # 这里只起一个守护线程做清理，避免 evaluate_js 在 UI 线程上等待自身消息泵而死锁。
+        def _on_player_closing(sid=session_id, win=self._player_window):
+            if self._player_window is not win:
+                return  # 已经被新会话替换，旧窗口事件直接忽略
+
+            def _cleanup():
+                self._on_player_window_closing(sid, win)
+
+            threading.Thread(target=_cleanup, daemon=True).start()
+
+        try:
+            self._player_window.events.closing += _on_player_closing
+        except Exception:
+            pass
+
+    def _clear_main_playing_state(self, session_id=''):
+        """通知主窗口清除 .now-playing-bar 所依赖的播放状态（幂等、按 session 校验）"""
+        w = self._main_window
+        if not w:
+            return
+        try:
+            js = (
+                "if(window.__app && typeof window.__app.clearPlayingState==='function'){"
+                "window.__app.clearPlayingState(%s);}"
+            ) % json.dumps(str(session_id or ''), ensure_ascii=False)
+            w.evaluate_js(js)
+        except Exception:
+            pass
+
+    def _on_player_window_closing(self, session_id='', window=None):
+        """统一的播放窗口关闭后清理（可由 API 关闭或原生 closing 事件触发）。"""
+        if window is not None and self._player_window is not window:
+            return
+        sid = str(session_id or self._active_playback_session or '')
+        self._player_window = None
+        if sid:
+            self._active_playback_session = ''
+        try:
+            clear_popout_state(sid or None)
+        except Exception:
+            pass
+        self._clear_main_playing_state(sid)
 
     def _resize_window_to_aspect(self, window, video_width, video_height):
-        """根据视频宽高比调整指定窗口尺寸"""
+        """根据视频原生分辨率把独立播放器窗口调整成相同宽高比（画面铺满、无黑边）。
+
+        视频铺满整个窗口（标题栏/控制栏均为浮层叠加），因此窗口宽高比直接等于
+        视频宽高比。竖屏以约 720px 视频高为基准，横屏以约 1280px 视频宽为基准，
+        并限制在当前屏幕工作区的 80% 内、居中显示。
+        """
         try:
-            if not window:
+            if not window or not video_width or not video_height:
                 return
-            ratio = video_width / video_height if video_height else 1
-            if ratio >= 1.3:
-                height = 500
-                width = int(500 * ratio)
-                if width > 1000:
-                    width = 1000
+            ratio = float(video_width) / float(video_height)
+            if ratio <= 0:
+                return
+            # 统一使用逻辑像素：WorkingArea 是物理像素，不能直接喂给 window.move/resize。
+            wa = _logical_work_area(window)
+            max_w = max(320, int(wa[2] * 0.8)) if wa else 1000
+            max_h = max(240, int(wa[3] * 0.8)) if wa else 900
+            w, h = 720.0 * ratio, 720.0
+            if w > max_w:
+                w, h = float(max_w), float(max_w) / ratio
+            if h > max_h:
+                w, h = float(max_h) * ratio, float(max_h)
+            w = max(int(round(w)), 320)
+            h = max(int(round(h)), 240)
+            # 用整数尺寸再精确对齐一次视频比例
+            h = max(int(round(w / ratio)), 240)
+            if h > max_h:
+                h = max_h
+                w = max(int(round(h * ratio)), 320)
+            origin = _centered_origin(wa, w, h) if wa else None
+            if origin:
+                self._run_on_ui(lambda: (window.move(origin[0], origin[1]), window.resize(w, h)))
             else:
-                width = 480
-                height = int(480 / ratio)
-                if height > 900:
-                    height = 900
-            self._run_on_ui(lambda: window.resize(width, height))
+                self._run_on_ui(lambda: window.resize(w, h))
             self._save_geometry(window)
         except Exception:
             pass
 
     def close_player(self):
         """关闭播放窗口，并通知主窗口清除正在播放状态（否则左上角标题残留）。"""
-        if self._player_window:
+        sid = str(self._active_playback_session or '')
+        win = self._player_window
+        if win:
             try:
-                self._save_geometry()
-                self._run_on_ui(self._player_window.destroy)
+                self._save_geometry(win)
+                self._run_on_ui(win.destroy)
             except Exception:
                 pass
-            self._player_window = None
-        # 通知主窗口清除 currentItem / 正在播放标题栏
-        w = self._main_window
-        if w:
-            try:
-                w.evaluate_js(
-                    "if(window.__app){window.__app.currentItem=null;"
-                    "window.__app.playerTitle='';}"
-                )
-            except Exception:
-                pass
+        # 统一清理：原生 closing 事件也会调用它，但这里是幂等的。
+        self._on_player_window_closing(sid, win)
 
     def open_main_settings(self, tab="sources"):
         """JS API：唤起主窗口设置中心并切到指定标签页（播放窗口「编辑 API 源」调用）。"""
@@ -854,11 +1007,16 @@ class JsApi:
         self.kind = kind          # 'main' | 'player'
         self._w = None
         self._is_maximized = False
+        self._is_snapped = False       # 自绘 Snap 菜单贴靠态（半屏/象限），区别于最大化
         self._restore_geom = None
         self._drag = None
         self._is_fullscreen = False
         self._fs_x = self._fs_y = self._fs_w = self._fs_h = 0
         self._was_maximized_before_fs = False  # 进入全屏前是否为最大化，退出时恢复
+        # 独立播放器窗口的原生视频比例（videoWidth / videoHeight），用于拖动缩放时锁定比例、消除黑边
+        self._video_aspect = None
+        self._video_px = None          # (videoWidth, videoHeight) 原始分辨率，仅记录
+        self._aspect_syncing = False   # 防止 sync_window_aspect 自触发的 resize 递归
 
     def attach(self, window):
         self._w = window
@@ -879,6 +1037,8 @@ class JsApi:
         w = self._w
         if not w:
             return
+        # 一旦开始自由拖动就不再是「菜单贴靠」态（与自研 Aero Snap 保持一致）
+        self._is_snapped = False
         # 仅记录按下时的几何与光标；【不在此时还原】。
         # 与 Win 原生一致：单击（无移动）保持原样；只有真正拖动才还原（见 drag_to）。
         self._drag = {
@@ -1008,6 +1168,43 @@ class JsApi:
             'sx': int(sx), 'sy': int(sy),
         }
 
+    def _aspect_fit(self, base, pointer=None, by_width=True):
+        """按视频原生宽高比，把拖拽驱动的维度(base)换算成合适的窗口 (宽, 高)。
+
+        仅在独立播放器窗口、拿到 videoWidth/videoHeight 后调用。
+        约束：最小 320x240、不超过光标所在屏幕工作区；超界时换另一维作基准，
+        保证最终比例与视频一致（无多余黑边）。
+        """
+        ratio = float(self._video_aspect or 1)
+        min_w, min_h = 320, 240
+        wa = self._screen_working_area(pointer[0], pointer[1]) if pointer else None
+        max_w = max(min_w, (wa['width'] - 8) if wa else 4096)
+        max_h = max(min_h + 8, (wa['height'] - 8) if wa else 2160)
+        if by_width:
+            w = min(max(int(round(base)), min_w), max_w)
+            h = int(round(w / ratio))
+            if h < min_h:
+                h = min_h
+                w = int(round(h * ratio))
+            if w > max_w:
+                w = max_w
+                h = int(round(w / ratio))
+            w = min(max(w, min_w), max_w)
+            h = min(max(int(round(w / ratio)), min_h), max_h)
+        else:
+            h = min(max(int(round(base)), min_h), max_h)
+            w = int(round(h * ratio))
+            if w < min_w:
+                w = min_w
+                h = int(round(w / ratio))
+            if w > max_w:
+                w = max_w
+                h = int(round(w / ratio))
+            if h > max_h:
+                h = max_h
+                w = int(round(h * ratio))
+        return max(int(w), min_w), min(max(int(h), min_h), max_h)
+
     def resize_to(self, sx, sy):
         w = self._w
         d = self._drag
@@ -1027,9 +1224,23 @@ class JsApi:
             ny = d['y'] + dy
         if hit in (15, 16, 17):      # 下
             nh = d['h'] + dy
-        min_w, min_h = (360, 640) if self.kind == 'player' else (800, 600)
+        min_w, min_h = (320, 240) if self.kind == 'player' else (800, 600)
         nw = max(int(round(nw)), min_w)
         nh = max(int(round(nh)), min_h)
+
+        # 独立播放器：按视频原生比例规整尺寸，拖动边缘时画面等比缩放、不产生黑边。
+        # 左右边缘 → 宽度驱动；上下边缘 → 高度驱动；四角 → 取相对位移更大的维度驱动。
+        if self.kind == 'player' and self._video_aspect and not self._is_maximized:
+            by_width = hit in (10, 11)
+            if hit in (13, 14, 16, 17):  # 四角：相对变化更大的一维作基准
+                by_width = abs(dx) / max(d['w'], 1) >= abs(dy) / max(d['h'], 1)
+            base = nw if by_width else nh
+            nw, nh = self._aspect_fit(base, (int(sx), int(sy)), by_width)
+            # 左/上边缘锚点跟着新尺寸走，避免缩放时窗口"跳动"
+            if hit in (10, 13, 16):
+                nx = d['x'] + (d['w'] - nw)
+            if hit in (12, 13, 14):
+                ny = d['y'] + (d['h'] - nh)
         try:
             w.move(int(round(nx)), int(round(ny)))
             w.resize(int(nw), int(nh))
@@ -1069,6 +1280,56 @@ class JsApi:
             except Exception:
                 pass
         return None
+
+    def set_window_topmost(self, enabled):
+        """JS API：独立播放器窗口「始终置顶」。主窗口调用直接忽略。
+
+        浏览器打开 player.html 时 pywebview 不存在，前端不会走这里。
+        """
+        if self.kind != 'player' or not self.manager:
+            return False
+        try:
+            self.manager.set_player_topmost(bool(enabled))
+            return True
+        except Exception:
+            return False
+
+    def sync_window_aspect(self):
+        """JS API：窗口尺寸变化后把独立播放窗口校正到视频原生宽高比。
+
+        仅在「有原生分辨率 / 非最大化 / 非全屏 / 非拖拽中」时生效；
+        前端 resize 事件做了防抖，这里再做一次偏差阈值判断，避免 resize 递归。
+        """
+        if self.kind != 'player' or not self._video_aspect or self._is_maximized or self._is_fullscreen or self._drag:
+            return False
+        w = self._w
+        if not w or self._aspect_syncing:
+            return False
+        try:
+            ratio = float(self._video_aspect)
+            if ratio <= 0:
+                return False
+            cw, ch = int(w.width), int(w.height)
+            if cw <= 0 or ch <= 0:
+                return False
+            # 视频铺满全窗：窗口宽高比直接等于视频宽高比，无控件条补偿
+            nw_by_w, nh_by_w = cw, int(round(cw / ratio))
+            nw_by_h, nh_by_h = int(round(ch * ratio)), ch
+            dw = abs(nw_by_w - cw) + abs(nh_by_w - ch)
+            dh = abs(nw_by_h - cw) + abs(nh_by_h - ch)
+            by_width = dw <= dh
+            base = cw if by_width else ch
+            nw, nh = self._aspect_fit(base, None, by_width)
+            if abs(nw - cw) <= 2 and abs(nh - ch) <= 2:
+                return False
+            self._aspect_syncing = True
+            try:
+                w.resize(nw, nh)
+            finally:
+                self._aspect_syncing = False
+            return True
+        except Exception:
+            return False
 
     def minimize_window(self):
         w = self._w
@@ -1131,6 +1392,7 @@ class JsApi:
                 native.SetBounds(int(wa.X), int(wa.Y), int(wa.Width), int(wa.Height))
                 _set_window_dwm_border(native, True)  # 去掉 1px 透明边框 + 圆角，贴满工作区不留缝
                 self._is_maximized = True
+                self._is_snapped = False  # 从贴靠态点最大化 → 归入最大化态
             # 返回切换后的真实最大化态，让前端以 Python 端为准，杜绝 JS/Python 状态错位。
             return bool(self._is_maximized)
 
@@ -1139,6 +1401,95 @@ class JsApi:
         except Exception as e:
             print(f"[toggle_maximize_window] failed: {e}")
             return bool(self._is_maximized)
+
+    @staticmethod
+    def _snap_rect(zone, X, Y, W, H, min_w, min_h):
+        """纯函数：计算自绘 Snap 菜单各 zone 相对工作区的贴靠矩形。
+        返回 (rect_dict, effective_zone, final_rect)；restore 返回 (None, 'restore', None)。
+        含 min_size 退化兜底：象限放不下→半屏，半屏放不下→整屏，绝不越界盖任务栏。
+        """
+        if zone == 'restore':
+            return None, 'restore', None
+        half_w, half_h = W // 2, H // 2
+        rects = {
+            'max':   (X, Y, W, H),
+            'left':  (X, Y, half_w, H),
+            'right': (X + half_w, Y, W - half_w, H),
+            'tl': (X, Y, half_w, half_h),
+            'tr': (X + half_w, Y, half_w, half_h),
+            'bl': (X, Y + half_h, half_w, H - half_h),
+            'br': (X + half_w, Y + half_h, half_w, H - half_h),
+        }
+        if zone not in rects:
+            zone = 'max'
+        effective = zone
+        # 象限放不下 → 对应半屏
+        if effective in ('tl', 'bl', 'tr', 'br'):
+            r = rects[effective]
+            if r[2] < min_w or r[3] < min_h:
+                effective = 'left' if effective in ('tl', 'bl') else 'right'
+        # 半屏放不下 → 整屏
+        if effective in ('left', 'right'):
+            r = rects[effective]
+            if r[2] < min_w or r[3] < min_h:
+                effective = 'max'
+        return rects, effective, rects[effective]
+
+    def snap_layout(self, zone):
+        """自绘 Snap Layout 菜单：按 zone 把窗口贴靠到工作区对应分区。
+        zone ∈ max|left|right|tl|tr|bl|br|restore。返回 {maximized, snapped}。
+        走 ui_invoke + native.SetBounds（WorkingArea 物理像素），与 toggle_maximize_window 同一坐标系，
+        绝不用 w.move/w.resize（DPI 逻辑像素会二次放大盖住任务栏）。
+        """
+        w = self._w
+        if not w or not getattr(w, 'native', None):
+            return {'maximized': bool(self._is_maximized), 'snapped': bool(self._is_snapped)}
+        zone = str(zone or '')
+
+        def _apply():
+            import System.Windows.Forms as WinForms
+            native = w.native
+            min_w, min_h = (800, 600) if self.kind == 'main' else (320, 240)
+            wa = WinForms.Screen.FromHandle(native.Handle).WorkingArea
+            X, Y, W, H = int(wa.X), int(wa.Y), int(wa.Width), int(wa.Height)
+
+            if zone == 'restore':
+                g = self._restore_geom
+                if g:
+                    native.SetBounds(int(g[0]), int(g[1]), int(g[2]), int(g[3]))
+                _set_window_dwm_border(native, False)
+                self._is_maximized = False
+                self._is_snapped = False
+                return {'maximized': False, 'snapped': False}
+
+            _rects, effective, rect = self._snap_rect(zone, X, Y, W, H, min_w, min_h)
+            if not rect:
+                return {'maximized': bool(self._is_maximized), 'snapped': bool(self._is_snapped)}
+            rx, ry, rw, rh = rect
+
+            # 仅「普通态」记录还原几何；最大化/已贴靠态保留此前几何，供 restore 回到原始窗口
+            if not self._is_maximized and not self._is_snapped:
+                b = native.Bounds
+                self._restore_geom = (int(b.X), int(b.Y), int(b.Width), int(b.Height))
+
+            native.SetBounds(rx, ry, rw, rh)
+            if effective == 'max':
+                _set_window_dwm_border(native, True)   # 最大化：去 1px 边框 + 圆角
+                self._is_maximized = True
+                self._is_snapped = False
+            else:
+                _set_window_dwm_border(native, False)  # 半屏/象限：保留圆角 + 阴影
+                self._is_maximized = False
+                self._is_snapped = True
+            return {'maximized': bool(self._is_maximized), 'snapped': bool(self._is_snapped)}
+
+        try:
+            result = ui_invoke(w, _apply)
+            if isinstance(result, dict):
+                return result
+        except Exception as e:
+            print(f"[snap_layout] failed: {e}")
+        return {'maximized': bool(self._is_maximized), 'snapped': bool(self._is_snapped)}
 
     def close_window(self):
         if self.kind == 'player':
@@ -1149,15 +1500,23 @@ class JsApi:
             except Exception:
                 pass
 
-    def report_play_progress(self, item_json="", src_idx=0, ep_idx=0, current_time=0):
+    def report_play_progress(self, item_json="", src_idx=0, ep_idx=0, current_time=0, session_id=""):
         """播放窗口上报当前播放进度 → 主窗口保存播放历史。
 
         播放窗口切换集数/开始播放时调用。传递完整的 item JSON（含 vod_id/vod_name/vod_pic 等），
         主窗口端直接设置 currentItem 再调用 saveHistory，避免因 currentItem 为空而跳过保存。
+
+        session_id 用于丢弃迟到上报：窗口关闭后旧播放器的进度不得把播放条重新复活。
         """
         w = self.manager._main_window
         if not w:
             return
+        sid = str(session_id or '')
+        active = str(getattr(self.manager, '_active_playback_session', '') or '')
+        if sid:
+            # 有 session 的调用必须在活动会话内；无 session 的老版本调用保持兼容。
+            if not active or active != sid:
+                return
         try:
             import json
             item = json.loads(item_json) if item_json else {}
@@ -1278,9 +1637,23 @@ class JsApi:
         self.manager.close_player()
 
     def resize_to_aspect(self, vw, vh):
+        """JS API：拿到视频原生分辨率 → 记录比例并把独立播放器窗口对齐该比例。"""
         w = self._w
-        if w:
-            self.manager._resize_window_to_aspect(w, vw, vh)
+        if not w or self.kind != 'player':
+            return
+        try:
+            vw, vh = int(vw), int(vh)
+        except Exception:
+            return
+        if vw <= 0 or vh <= 0:
+            return
+        self._video_px = (vw, vh)
+        self._video_aspect = float(vw) / float(vh)
+        # 最大化/全屏/拖拽中不要强行把窗口拉回普通居中；比例已记录，
+        # 退出这些状态后 sync_window_aspect 仍可用它校正尺寸。
+        if self._is_maximized or self._is_fullscreen or self._drag:
+            return
+        self.manager._resize_window_to_aspect(w, vw, vh)
 
     def toggle_fullscreen(self):
         """切换窗口真正的显示器全屏（覆盖整个显示器，含任务栏）。
@@ -1352,9 +1725,10 @@ class JsApi:
         return ui_invoke(w, _apply)
 
     def get_window_state(self):
-        """返回当前窗口状态（最大化 / 全屏），供前端初始化或同步时查询。"""
+        """返回当前窗口状态（最大化 / 贴靠 / 全屏），供前端初始化或同步时查询。"""
         return {
             'maximized': bool(self._is_maximized),
+            'snapped': bool(self._is_snapped),
             'fullscreen': bool(self._is_fullscreen),
         }
 

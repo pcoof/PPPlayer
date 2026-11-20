@@ -8,7 +8,7 @@
 <title>PPPlayer</title>
 <!-- 环境标记：尽早在 <head> 打上 is-desktop / is-web，避免浏览器里先闪出一排「最小化/最大化/关闭」。
      WebView2 会同步注入 window.chrome.webview（比 window.pywebview 更早可用）；window-chrome.js 会再确认一次。 -->
-<script>document.documentElement.classList.add((window.chrome && window.chrome.webview) ? 'is-desktop' : 'is-web');</script>
+<script>document.documentElement.classList.add('dark', (window.chrome && window.chrome.webview) ? 'is-desktop' : 'is-web');</script>
 <link rel="stylesheet" href="/static/css/style.css">
 <script src="/static/js/alpine.min.js" defer></script>
 </head>
@@ -344,10 +344,15 @@
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">系统行为</label>
           <div class="u-space-y-2">
-            <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.autostart" @change="toggleAutostart"> 开机自启 </label>
-            <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.closeToTray" @change="saveCfg()"> 关闭窗口时最小化到托盘 </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-pt-1"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.autostart" @change="toggleAutostart"> 开机自启 </label>
+            <label class="ts-label--checkbox u-flex u-items-center u-pt-1"> <input type="checkbox" class="ts-checkbox" checked="" x-model="cfg.closeToTray" @change="saveCfg()"> 关闭窗口时最小化到托盘 </label>
           </div>
           <p class="ts-hint u-mt-2">开启后点击关闭按钮会隐藏到系统托盘，可通过托盘图标或老板键恢复。</p>
+        </div>
+        <div class="u-pt-5">
+          <label class="ts-label u-block u-mb-2">网络代理</label>
+          <label class="ts-label--checkbox u-flex u-items-center u-mb-2"> <input type="checkbox" class="ts-checkbox" x-model="cfg.useSystemProxy" @change="saveCfg()"> 使用系统代理（与浏览器一致） </label>
+          <p class="ts-hint u-mt-2">开启后跟随 Windows 系统代理 / HTTP_PROXY（含 NO_PROXY），浏览器能打开的 API 源在软件内也能检测。若开启代理反而导致连接异常，可关闭此项回到直连模式。</p>
         </div>
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">主题风格</label>
@@ -385,7 +390,7 @@
         </div>
       </div>
       <!-- API 源 -->
-      <div x-show="settingsTab==='sources'" x-cloak style="display: flex; flex-direction: column; position: relative;">
+      <div x-show="settingsTab==='sources'" x-cloak style="display: flex; flex-direction: column; position: relative;margin:auto -10px;">
         <div class="u-flex u-items-center u-justify-between u-pt-5">
           <h3 class="ts-label">API 源（单选）</h3>
           <div class="u-flex u-items-center u-gap-2">
@@ -395,7 +400,7 @@
             <input type="file" x-ref="importFile" @change="importSources($event)" accept=".json" class="u-hidden">
           </div>
         </div>
-        <div class="u-pt-5">
+        <div class="u-pt-1">
           <template x-for="(s,i) in sources" :key="s.id">
             <div class="ts-src u-mt-2" :class="!s.enabled?'off':''">
               <button @click="setActiveSource(i)" class="ts-switch" :class="s.enabled?'on':''"><span></span></button>
@@ -451,7 +456,7 @@
           </div>
         </div>
         <!-- GitHub Gist 云同步 -->
-        <div class="u-pt-5 ts-gist-section">
+        <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">GitHub Gist 云同步</label>
           <p class="ts-hint u-mb-3">把全部数据同步到你自己的私密 Gist，在多设备间保持一致。首次配置后会自动查找并绑定已有同步 Gist，避免重复创建。</p>
 
@@ -581,8 +586,8 @@
         </div>
         <div class="u-pt-5">
           <label class="ts-label u-block u-mb-2">api源</label>
-          <p class="ts-hint">可以在<a href="https://github.com/search?q=provide%2Fvod&type=code">github</a>中查找api源接口<p>
-          </div>
+          <p class="ts-hint">苹果cms API 可以在<a href="https://github.com/search?q=provide%2Fvod&type=code" target="_blank"><span style="color:rgb(26, 176, 0);"  >github</span></a>中查找api源接口<p>
+        </div>
       </div>
     </div>
   </div>

@@ -14,6 +14,7 @@ from .parser.m3u8_filter import filter_m3u8, filter_m3u8_text, USER_AGENT
 from .cms.detector import detect_cms
 from .cms.base import CMSNoSearchError
 from .cms.http import _TlsHappyEyeballsAdapter
+from .net_proxy import SystemCertAdapter, bind_session, proxy_kwargs
 from .config_store import load_all, save_all
 
 
@@ -135,9 +136,8 @@ STATIC_DIR = os.path.join(_BASE, "static")
 # 用带连接池的 Session：同一 CDN 主机的切片复用长连接，消除每次握手开销；
 # 配合重试适配器，偶发抖动自动恢复，不再因单片失败而阻塞整条缓冲链。
 _MEDIA_SESSION = req.Session()
-# 与 cms_session 一致：绕开系统代理/VPN/爬虫工具，直连源站（详见 src/cms/http.py 注释）。
-# 代理若在系统层做 MITM 重签，会让 .ts 切片 TLS 失败、播放卡顿；直连则跟浏览器行为一致。
-_MEDIA_SESSION.trust_env = False
+# trust_env 由 src/net_proxy.py 统一策略设置：默认随系统代理（与浏览器一致）；
+# 用 _TlsHappyEyeballsAdapter（已注入系统根证书）同时兼容 CDN 坏节点与 MITM 代理。
 _MEDIA_ADAPTER = _TlsHappyEyeballsAdapter(
     pool_connections=40,
     pool_maxsize=40,
@@ -150,9 +150,13 @@ _MEDIA_ADAPTER = _TlsHappyEyeballsAdapter(
 )
 _MEDIA_SESSION.mount("http://", _MEDIA_ADAPTER)
 _MEDIA_SESSION.mount("https://", _MEDIA_ADAPTER)
+bind_session(_MEDIA_SESSION)  # 策略切换时实时同步 trust_env
 
 # 弹出窗口播放状态中转（pywebview 独立窗口 localStorage 不共享）
 _popout_state = None
+# 当前活动播放会话 ID。关闭清理必须按 session 校验，避免旧窗口的迟到关闭
+# 清掉新窗口状态；浏览器多标签场景也能借此做逻辑仲裁。
+_active_popout_session = None
 
 # 已过滤的 M3U8 文本暂存（key=sid, value=播放列表文本）。
 # 浏览器先把远程播放列表拉回来，后端只做「过滤+暂存」，再以 .m3u8 结尾的 URL
@@ -162,8 +166,12 @@ _m3u8_store: dict[str, str] = {}
 
 def set_popout_state(state):
     """由 PlayerWindow 调用，存储弹出窗口的播放状态"""
-    global _popout_state
+    global _popout_state, _active_popout_session
     _popout_state = state
+    if isinstance(state, dict):
+        sid = state.get('sessionId')
+        if sid:
+            _active_popout_session = str(sid)
 
 
 def get_popout_state():
@@ -172,6 +180,21 @@ def get_popout_state():
     state = _popout_state
     _popout_state = None
     return state
+
+
+def clear_popout_state(session_id=None):
+    """按 session 清理播放状态槽。
+
+    传 session_id 时只清理匹配会话，防止旧窗口迟到关闭误清新播放状态；
+    不传则强制清理（兼容老版本调用）。
+    """
+    global _popout_state, _active_popout_session
+    sid = str(session_id) if session_id else ''
+    if sid and _active_popout_session and sid != str(_active_popout_session):
+        return False
+    _popout_state = None
+    _active_popout_session = None
+    return True
 
 
 def create_app() -> Flask:
@@ -500,6 +523,18 @@ def create_app() -> Flask:
             return jsonify(state)
         return jsonify(None), 404
 
+    @app.route("/api/popout_state/clear", methods=["POST"])
+    def api_popout_state_clear():
+        """播放器页面关闭/卸载时清理服务端中转状态（按 session 校验）。"""
+        sid = ''
+        try:
+            payload = request.get_json(silent=True) or {}
+            sid = str(payload.get('sessionId') or request.args.get('sessionId') or '')
+        except Exception:
+            pass
+        clear_popout_state(sid or None)
+        return jsonify({"ok": True})
+
     # ── API: 配置持久化 ────────────────────────────────────
     @app.route("/api/config/load", methods=["GET"])
     def api_config_load():
@@ -516,6 +551,12 @@ def create_app() -> Flask:
         try:
             data = request.get_json(force=True) or {}
             save_all(data)
+            # 网络代理策略随配置实时生效（无需重启应用）
+            try:
+                from . import net_proxy
+                net_proxy.reload()
+            except Exception:
+                pass
             return jsonify({"ok": True})
         except Exception as e:
             return jsonify({"error": str(e)}), 500

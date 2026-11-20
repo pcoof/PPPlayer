@@ -4,9 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>PPPlayer</title>
-<!-- 环境标记：尽早打上 is-desktop / is-web，浏览器打开时隐藏仅桌面端可用的窗口按钮（保留全屏按钮） -->
+<!-- 环境标记 + 播放器锁定主题：尽早设置，避免首屏浅色闪烁 -->
 <script>
-document.documentElement.classList.add( window.chrome && window.chrome.webview ? "is-desktop" : "is-web", );
+document.documentElement.classList.add(window.chrome && window.chrome.webview ? "is-desktop" : "is-web");
+document.documentElement.classList.add("dark");
+document.documentElement.setAttribute("data-theme", "default");
 </script>
 <!-- XGPlayer（本地 vendor） -->
 <link rel="stylesheet" href="/static/css/style.css" />
@@ -94,6 +96,13 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                                 <div class="pp-setting-hint">视频右侧显示上下集切换按钮</div>
                             </div>
                             <button id="ppTogglePagination" class="pp-switch" onclick="toggleSetting('pagination')"></button>
+                        </div>
+                        <div class="pp-setting-row pp-desktop-only">
+                            <div>
+                                <div class="pp-setting-label">窗口置顶</div>
+                                <div class="pp-setting-hint">独立播放器窗口始终显示在最前（浏览器打开时不生效）</div>
+                            </div>
+                            <button id="ppToggleTopmost" class="pp-switch" onclick="toggleSetting('topmost')"></button>
                         </div>
                         <div class="pp-setting-row">
                             <div>
@@ -194,6 +203,16 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
         let verticalSwiper = null;
         let clearScreenState = false;
         let currentActiveIndex = 0; // 当前激活集索引，供 canplay 内判定是否调整窗口比例
+        // 视频原生分辨率：独立播放器窗口据此锁定宽高比，拖动/调整窗口时等比缩放画面
+        let nativeVideoSize = null;  // {width, height}
+        let aspectResizeTimer = null;
+        let playerSettingsLoaded = false; // 设置未读出前不回写窗口状态，避免覆盖已恢复的置顶偏好
+
+        // 桌面壳（pywebview/WebView2）判定：置顶、窗口比例缩放仅对独立播放器窗口生效
+        function isDesktopPlayer() {
+            // 浏览器里没有 pywebview 桥接对象；只需据此判断即可，方案对浏览器零影响
+            return !!(window.pywebview && window.pywebview.api);
+        }
 
         // 元数据（面板用）
         let metaTitle = "";
@@ -240,25 +259,11 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             }));
         }
 
-        // 从主窗口配置同步主题（深色模式 + 风格主题）
+        // 播放器固定使用夜间主题 + 默认视觉风格，不随主应用主题/风格变化。
+        // data-theme=default 已在早期脚本设置，这里再次锁定，避免后续脚本意外覆盖。
         function syncThemeFromConfig() {
-            fetch("/api/config/load")
-                .then((r) => r.json())
-                .then((data) => {
-                    var cfg = data && data.cms_cfg ? data.cms_cfg : {};
-                    var theme = cfg.theme || "dark";
-                    var styleTheme = cfg.styleTheme || "default";
-                    var dark =
-                        theme === "dark" ||
-                        (theme === "auto" &&
-                            window.matchMedia("(prefers-color-scheme:dark)").matches);
-                    document.documentElement.classList.toggle("dark", dark);
-                    document.documentElement.setAttribute("data-theme", styleTheme);
-                })
-                .catch(() => {
-                    // 失败时默认深色
-                    document.documentElement.classList.add("dark");
-                });
+            document.documentElement.classList.add("dark");
+            document.documentElement.setAttribute("data-theme", "default");
         }
 
         function setupMeta() {
@@ -286,10 +291,8 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 "trigger-btn next-ep-btn" + (atLast ? " is-disabled" : "");
             const prevDisabled = atFirst ? " disabled" : "";
             const nextDisabled = atLast ? " disabled" : "";
-            const pagDisp =
-                typeof ppSettings !== "undefined" && ppSettings.pagination
-                    ? ""
-                    : "none";
+            // 单集时强制隐藏翻页控件（即使「翻页显示」开关已开启）
+            var pagDisp = paginationVisible() ? "" : "none";
             return (
                 "" +
                 '<div class="swiper-slide u-relative u-overflow-hidden">' +
@@ -380,6 +383,40 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
         }
 
         // ==================== 播放器初始化 ====================
+        // 读取当前集视频的原生分辨率 → 独立播放器窗口按该比例缩放画面。
+        // 浏览器里没有 pywebview 桥接，直接返回，不做任何窗口适配。
+        function applyNativeAspect(wrapEl, force) {
+            if (!isDesktopPlayer()) return;
+            var holder = wrapEl.querySelector(".xg-container");
+            var videoEl = holder && holder.querySelector("video");
+            if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) return;
+            nativeVideoSize = { width: videoEl.videoWidth, height: videoEl.videoHeight };
+            if (!force && wrapEl._aspectApplied) return; // 每集只初始调整一次，避免 re-buffer 反复 resize
+            try {
+                window.pywebview.api.resize_to_aspect(
+                    videoEl.videoWidth,
+                    videoEl.videoHeight,
+                );
+                wrapEl._aspectApplied = true;
+            } catch (e) {
+                console.warn("[aspect] resize_to_aspect failed:", e);
+            }
+        }
+
+        // 窗口尺寸变化后按比例校正（拖动边缘/最大化还原/退出全屏都覆盖）；
+        // 防抖 + 后端偏差阈值双重保护，避免 resize 事件自触发循环。
+        window.addEventListener("resize", function () {
+            if (!isDesktopPlayer() || !nativeVideoSize) return;
+            if (aspectResizeTimer) clearTimeout(aspectResizeTimer);
+            aspectResizeTimer = setTimeout(function () {
+                aspectResizeTimer = null;
+                try {
+                    if (window.pywebview.api.sync_window_aspect)
+                        window.pywebview.api.sync_window_aspect();
+                } catch (e) { }
+            }, 200);
+        });
+
         async function initPlayer(wrapEl, shouldPlay) {
             const epIndex = Number(wrapEl.dataset.epIndex);
             const ep = episodeList[epIndex];
@@ -485,28 +522,18 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                     }
                 });
 
+                function onVideoMeta() {
+                    if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return;
+                    applyNativeAspect(wrapEl, false);
+                }
+                var videoForMeta = container.querySelector("video");
+                if (videoForMeta) {
+                    videoForMeta.addEventListener("loadedmetadata", onVideoMeta);
+                    if (videoForMeta.readyState >= 1) onVideoMeta();
+                }
                 player.on("canplay", function () {
-                    if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return; // 仅当前集才按视频比例调整窗口
-                    if (wrapEl._aspectApplied) return; // 每集只按视频比例调整一次窗口，避免拖动进度条 re-buffer 时反复 resize
-                    var videoEl = container.querySelector("video");
-                    if (videoEl && videoEl.videoWidth && videoEl.videoHeight) {
-                        console.log(
-                            "[DEBUG] Video size:",
-                            videoEl.videoWidth,
-                            "x",
-                            videoEl.videoHeight,
-                        );
-                        if (
-                            typeof window.pywebview !== "undefined" &&
-                            window.pywebview.api
-                        ) {
-                            window.pywebview.api.resize_to_aspect(
-                                videoEl.videoWidth,
-                                videoEl.videoHeight,
-                            );
-                            wrapEl._aspectApplied = true;
-                        }
-                    }
+                    if (Number(wrapEl.dataset.epIndex) !== currentActiveIndex) return;
+                    applyNativeAspect(wrapEl, false);
                 });
 
                 // 清屏（影院模式）：与全屏控制栏分区显隐协作。
@@ -822,6 +849,8 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             renderedSlides = 0;
             verticalSwiper.removeAllSlides();
             renderBatch(0, Math.min(INIT_LOAD, episodeList.length));
+            // 切线路后分集数可能变为 1 → 重新判定翻页控件显隐
+            applyPlayerSettings();
 
             // 跳转到第一集
             verticalSwiper.slideTo(0, 0);
@@ -841,6 +870,38 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 window.close();
             }
         }
+
+        // 页面关闭/刷新时通知主窗口清理 .now-playing-bar。
+        // pywebview 独立窗口还有 Python 侧 closing 事件双重兜底；
+        // 浏览器标签则依赖 postMessage + /api/popout_state/clear。
+        function notifyPlayerClosed() {
+            var sid = (playState && playState.sessionId) || "";
+            try {
+                var body = JSON.stringify({ sessionId: sid });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(
+                        "/api/popout_state/clear",
+                        new Blob([body], { type: "application/json" }),
+                    );
+                } else {
+                    fetch("/api/popout_state/clear", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: body,
+                        keepalive: true,
+                    }).catch(function () { });
+                }
+            } catch (e) { }
+            if (window.opener && !window.opener.closed) {
+                try {
+                    window.opener.postMessage(
+                        { type: "pp-player-closed", sessionId: sid },
+                        location.origin,
+                    );
+                } catch (e) { }
+            }
+        }
+        window.addEventListener("pagehide", notifyPlayerClosed);
 
         function toggleFav() {
             var favKey = "cms_popout_fav";
@@ -877,7 +938,13 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             skipOutro: false,
             skipOutroTime: 0,
             bgMode: "cover", // 'cover'=用封面作模糊背景；'black'=纯黑底色
+            topmost: false,  // 独立播放器窗口始终置顶（仅桌面端生效）
         };
+
+        // 翻页控件：开关开启「且」分集数 > 1 时才显示（单集自动隐藏，避免无意义的上下集按钮）
+        function paginationVisible() {
+            return ppSettings.pagination && episodeList.length > 1;
+        }
 
         function loadPlayerSettings() {
             try {
@@ -891,9 +958,24 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                     ppSettings.skipOutro = s.skipOutro === true;
                     ppSettings.skipOutroTime = Number(s.skipOutroTime) || 0;
                     ppSettings.bgMode = s.bgMode === "black" ? "black" : "cover";
+                    if (typeof s.topmost === "boolean") {
+                        ppSettings.topmost = s.topmost;
+                    } else {
+                        // 兼容旧版：此前顶栏图钉被当作「置顶」开关，迁移其状态为新设置值
+                        try {
+                            ppSettings.topmost =
+                                localStorage.getItem("cms_player_ctl_pinned") === "1";
+                        } catch (e) { }
+                    }
+                } else {
+                    try {
+                        ppSettings.topmost =
+                            localStorage.getItem("cms_player_ctl_pinned") === "1";
+                    } catch (e) { }
                 }
             } catch (e) { }
             autoNextEnabled = ppSettings.autoNext;
+            playerSettingsLoaded = true;
         }
         function savePlayerSettings() {
             try {
@@ -903,17 +985,64 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 );
             } catch (e) { }
         }
+
+        // 窗口置顶：只调用独立播放器窗口的后端 API；浏览器里仅更新开关显示。
+        // syncPin=true 时同步顶栏图钉（二者在桌面端统一为同一个「置顶」状态）。
+        function setWindowTopmost(on, syncPin) {
+            on = !!on;
+            if (ppSettings.topmost !== on) {
+                ppSettings.topmost = on;
+                savePlayerSettings();
+            }
+            var sw = document.getElementById("ppToggleTopmost");
+            if (sw) sw.classList.toggle("on", on);
+            if (isDesktopPlayer()) {
+                try {
+                    if (window.pywebview.api.set_window_topmost)
+                        window.pywebview.api.set_window_topmost(on);
+                } catch (e) {
+                    console.warn("[topmost] set failed:", e);
+                }
+            }
+            if (syncPin && typeof ctl !== "undefined" && ctl) {
+                ctl.pinned = on;
+                try { localStorage.setItem("cms_player_ctl_pinned", on ? "1" : "0"); } catch (e) { }
+                if (typeof syncPinBtn === "function") syncPinBtn();
+                if (typeof applyCtl === "function") applyCtl();
+            }
+        }
+
+        // 初次加载 / pywebview 注入完成后把持久化的置顶偏好应用到窗口
+        function syncWindowTopmostFromSettings() {
+            if (!playerSettingsLoaded) return; // 等设置读完再回写，避免把已恢复的置顶状态误关掉
+            var sw = document.getElementById("ppToggleTopmost");
+            if (sw) sw.classList.toggle("on", ppSettings.topmost);
+            if (!isDesktopPlayer()) return;
+            if (ppSettings.topmost && typeof ctl !== "undefined" && ctl) {
+                ctl.pinned = true;
+                if (typeof syncPinBtn === "function") syncPinBtn();
+                if (typeof applyCtl === "function") applyCtl();
+            }
+            setWindowTopmost(ppSettings.topmost, false);
+        }
+        window.addEventListener("pywebviewready", syncWindowTopmostFromSettings);
+
         function applyPlayerSettings() {
             // 翻页显示开关 → 视频右侧上下集切换按钮(.sider-trigger)显隐
+            // 单集时无论开关状态都隐藏（没有上一集/下一集可翻）
+            var showPag = paginationVisible();
             var triggers = document.querySelectorAll(".sider-trigger");
             triggers.forEach(function (el) {
-                el.style.display = ppSettings.pagination ? "" : "none";
+                el.style.display = showPag ? "" : "none";
             });
             var tabWrap = document.getElementById("tabWrap");
             if (tabWrap)
-                tabWrap.style.display = ppSettings.pagination ? "" : "none";
+                tabWrap.style.display = showPag ? "" : "none";
             var tp = document.getElementById("ppTogglePagination");
             if (tp) tp.classList.toggle("on", ppSettings.pagination);
+            // 置顶开关状态
+            var tm = document.getElementById("ppToggleTopmost");
+            if (tm) tm.classList.toggle("on", ppSettings.topmost);
             // 背景模式 → 封面模糊图显隐；黑底时用纯黑舞台
             document.body.classList.toggle("pp-bg-black", ppSettings.bgMode === "black");
             document.querySelectorAll("#ppBgSeg button").forEach(function (b) {
@@ -924,6 +1053,8 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
         function toggleSetting(key) {
             if (key === "pagination")
                 ppSettings.pagination = !ppSettings.pagination;
+            else if (key === "topmost")
+                setWindowTopmost(!ppSettings.topmost, true);
             savePlayerSettings();
             applyPlayerSettings();
         }
@@ -1203,7 +1334,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 obs.observe(panel, { attributes: true, attributeFilter: ["class"] });
             }
 
-            // 置顶按钮
+            // 置顶按钮（图钉）：桌面端同时控制「窗口置顶」与「固定控制栏」，浏览器里只固定控制栏
             var pinBtn = document.getElementById("ppPinBtn");
             if (pinBtn) {
                 pinBtn.addEventListener("click", function () {
@@ -1212,6 +1343,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                     syncPinBtn();
                     applyCtl();
                     ctlResetTimer();
+                    if (isDesktopPlayer()) setWindowTopmost(ctl.pinned, false);
                 });
             }
         }
@@ -1220,7 +1352,9 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
             var btn = document.getElementById("ppPinBtn");
             if (!btn) return;
             btn.classList.toggle("is-pinned", ctl.pinned);
-            btn.title = ctl.pinned ? "取消固定控制栏" : "固定控制栏";
+            btn.title = isDesktopPlayer()
+                ? (ctl.pinned ? "取消置顶 / 取消固定控制栏" : "窗口置顶 / 固定控制栏")
+                : (ctl.pinned ? "取消固定控制栏" : "固定控制栏");
             btn.setAttribute("aria-label", btn.title);
         }
 
@@ -1267,8 +1401,9 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                 );
                 playState = state;
                 loadPlayerSettings();
+                syncWindowTopmostFromSettings(); // 把持久化的「窗口置顶」偏好应用到独立播放器窗口
                 setupMeta();
-                syncThemeFromConfig(); // 同步主窗口主题到播放窗口
+                syncThemeFromConfig(); // 应用播放器锁定主题（夜间 + 默认风格）
                 episodeList = buildEpisodeList();
                 console.log(
                     "[DEBUG] episodeList length=" + episodeList.length,
@@ -1308,6 +1443,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                                         playState.playSrc || 0,
                                         idx,
                                         0,
+                                        playState.sessionId || "",
                                     );
                                 } catch (e) {
                                     console.warn("[report_play_progress] failed:", e);
@@ -1378,6 +1514,7 @@ document.documentElement.classList.add( window.chrome && window.chrome.webview ?
                                 playState.playSrc || 0,
                                 verticalSwiper ? verticalSwiper.activeIndex : 0,
                                 0,
+                                playState.sessionId || "",
                             );
                         } catch (e) { }
                     }

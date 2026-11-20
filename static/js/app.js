@@ -90,6 +90,15 @@ function app() {
         sourceClassesFetched: [],
         sourceClassesLoading: false,
         _currentPlayUrl: '',
+        playbackSessionId: '',   // 当前播放会话 ID：关闭清理/进度上报都按它校验
+        _popoutWindow: null,     // 浏览器端 /player 窗口引用，用于轮询关闭
+        _reqSeq: 0,              // 列表请求序号：旧响应迟到直接丢弃
+        _inflight: Object.create(null),   // key -> Promise，同 key 重复请求合并
+        _reqControllers: Object.create(null), // key -> AbortController
+        _videoCache: Object.create(null),     // key -> {ts, videos, totalPages, hasMore}
+        _videoCacheTTL: 45 * 1000,
+        _classesInflight: Object.create(null),
+        _classCacheTTL: 5 * 60 * 1000,
         _skip: {},
         _observer: null,
         _urlFetchTimer: null,
@@ -100,7 +109,7 @@ function app() {
         _imgRatios: {},        // 图片真实宽高比缓存：{ 图片URL: height/width }，避免二次进入反复跳动
 
         async init() {
-            const defCfg = { theme: "auto", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", cardWall: false, hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
+            const defCfg = { theme: "dark", styleTheme: "default", autoNext: true, rememberSpeed: true, playerType: "native", loadMode: "waterfall", cardWall: false, hiddenTypes: "", autoLoadMore: true, smartAdRemove: true, skipIntro: false, skipOutro: false, introTime: 0, outroTime: 0, cms_spd: "1", maxHistory: 200, maxFav: 500, autostart: false, closeToTray: true, useSystemProxy: true, cardTags: { tl: "area", tr: "", bl: "", br: "hits", sub1: "type", sub2: "year" } };
             let saved = {};
             try { saved = await API.loadAllConfig(); } catch (e) { console.warn('load config error:', e); }
 
@@ -173,6 +182,16 @@ function app() {
 
             window._onOutroTrigger = () => { if (this.cfg.autoNext) this.nextEp(); };
             window._onVideoEnded = () => { if (this.cfg.autoNext) this.nextEp(); };
+
+            // 浏览器 /player 关闭时通过 postMessage 通知本窗口清理播放条。
+            // pywebview 独立窗口走 Python closing 事件，不依赖这里。
+            window.addEventListener('message', (event) => {
+                if (event.origin !== location.origin) return;
+                const d = event.data;
+                if (d && d.type === 'pp-player-closed') {
+                    this.clearPlayingState(d.sessionId || '');
+                }
+            });
             window._onRateChange = (rate) => {
                 this.playSpeed = String(rate);
                 if (this.cfg.rememberSpeed) { this.cfg.cms_spd = this.playSpeed; this.saveAllDataDebounced(); }
@@ -454,16 +473,62 @@ function app() {
             }
         },
         closePlayingBar() {
-            // 关闭播放窗口并清除当前播放状态
+            // 关闭播放窗口并清除当前播放状态。浏览器端必须同时关掉 /player 标签，
+            // 否则会出现「bar 消失但视频还在后台响」。
+            const sid = this.playbackSessionId;
             if (window.pywebview && window.pywebview.api && window.pywebview.api.close_player) {
                 window.pywebview.api.close_player();
+            } else if (this._popoutWindow && !this._popoutWindow.closed) {
+                try { this._popoutWindow.close(); } catch (e) {}
             }
+            this.clearPlayingState(sid);
+        },
+
+        clearPlayingState(sessionId = '') {
+            // 幂等清理：带 sessionId 时只清当前会话，避免旧窗口迟到事件清掉新播放状态。
+            if (sessionId && this.playbackSessionId && String(sessionId) !== String(this.playbackSessionId)) return false;
+            if (this.playbackSessionId) {
+                try {
+                    const raw = localStorage.getItem('cms_popout_state');
+                    if (raw) {
+                        const s = JSON.parse(raw);
+                        if (!sessionId || !s.sessionId || String(s.sessionId) === String(this.playbackSessionId)) {
+                            localStorage.removeItem('cms_popout_state');
+                        }
+                    }
+                } catch (e) {
+                    try { localStorage.removeItem('cms_popout_state'); } catch (e2) {}
+                }
+            }
+            this.playbackSessionId = '';
             this.currentItem = null;
             this.playerTitle = '';
+            this.playGroups = [];
+            this.playSrc = 0;
+            this.playEp = 0;
+            this.closePlayer();
+            return true;
+        },
+
+        watchPopoutWindow(win, sessionId) {
+            // window.open 没有可靠 close 事件，轮询 closed 做浏览器端兜底。
+            const check = () => {
+                if (!win || win.closed) {
+                    this._popoutWindow = null;
+                    this.clearPlayingState(sessionId);
+                    return;
+                }
+                setTimeout(check, 700);
+            };
+            setTimeout(check, 700);
         },
 
         applyTheme() {
-            const dark = this.cfg.theme === 'dark' || (this.cfg.theme === 'auto' && matchMedia('(prefers-color-scheme:dark)').matches);
+            // 网页端默认对齐桌面端深色风格：即使配置是 auto，也不跟随系统浅色；
+            // 用户显式选择 light 时仍可切回浅色，主题切换功能保持不变。
+            const isWeb = !(window.chrome && window.chrome.webview);
+            const dark = this.cfg.theme === 'dark' ||
+                (this.cfg.theme === 'auto' && (isWeb || matchMedia('(prefers-color-scheme:dark)').matches));
             document.documentElement.classList.toggle('dark', dark);
         },
 
@@ -509,7 +574,9 @@ function app() {
         deleteSource(index) {
             if (!confirm('确定删除此源？')) return;
             const wasEnabled = this.sources[index].enabled;
+            const removedUrl = this.sources[index].url;
             this.sources.splice(index, 1);
+            this._invalidateVideoCache(removedUrl);
             if (wasEnabled && this.sources.length > 0) {
                 this.sources[0].enabled = true;
                 this.normalizeSourceEnabled();
@@ -636,40 +703,65 @@ function app() {
             document.body.removeChild(m);
         },
 
+        _normalizeCurrentType() {
+            const all = this.allClassesList || [];
+            if (this.currentType !== '0' && all.length &&
+                !all.some(c => String(c.type_id) === String(this.currentType))) {
+                this.currentType = '0';
+            }
+        },
+
         async loadClasses() {
             const activeSource = this.getActiveSource();
             if (!activeSource) { this.classes = []; this.allClassesList = []; return; }
             const cacheKey = 'cms_cls_' + activeSource.url;
-            const cached = localStorage.getItem(cacheKey);
-            if (cached) {
-                try {
-                    const cls = JSON.parse(cached);
-                    this.allClassesList = cls;
-                    this.classes = this.filterClasses(cls);
-                    this.scheduleCalcClasses();
-                    return;
-                } catch (e) {}
-            }
-            try {
-                const data = await API.getClasses(activeSource.url);
-                let cls = [];
-                if (Array.isArray(data.class)) cls = data.class;
-                else if (Array.isArray(data.list)) cls = data.list;
-                else if (data.data && Array.isArray(data.data.class)) cls = data.data.class;
-                else if (data.data && Array.isArray(data.data.list)) cls = data.data.list;
-                else if (Array.isArray(data.data)) cls = data.data;
-                else cls = [];
-                localStorage.setItem(cacheKey, JSON.stringify(cls));
-                this.allClassesList = cls;
-                this.classes = this.filterClasses(cls);
-                if (this.currentType !== '0' && !this.classes.some(c => String(c.type_id) === String(this.currentType))) {
-                    this.currentType = '0';
-                }
+
+            const applyClasses = (cls) => {
+                this.allClassesList = Array.isArray(cls) ? cls : [];
+                this.classes = this.filterClasses(this.allClassesList);
+                this._normalizeCurrentType();
                 this.scheduleCalcClasses();
-            } catch (e) {
-                console.warn('loadClasses error:', e);
-                this.classes = []; this.allClassesList = [];
-            }
+            };
+
+            // 兼容旧格式（直接存数组）与新格式（{ts, data}）；旧格式无时间戳，永远视为有效，
+            // 下次成功拉取后会自动升级为新格式。
+            try {
+                const raw = localStorage.getItem(cacheKey);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    let cls = null, ts = 0;
+                    if (Array.isArray(parsed)) { cls = parsed; }
+                    else if (parsed && Array.isArray(parsed.data)) {
+                        cls = parsed.data; ts = Number(parsed.ts) || 0;
+                    }
+                    if (cls && (!ts || Date.now() - ts <= this._classCacheTTL)) {
+                        applyClasses(cls);
+                        return;
+                    }
+                }
+            } catch (e) {}
+
+            if (this._classesInflight[cacheKey]) return this._classesInflight[cacheKey];
+
+            const task = (async () => {
+                try {
+                    const data = await API.getClasses(activeSource.url);
+                    let cls = [];
+                    if (Array.isArray(data.class)) cls = data.class;
+                    else if (Array.isArray(data.list)) cls = data.list;
+                    else if (data.data && Array.isArray(data.data.class)) cls = data.data.class;
+                    else if (data.data && Array.isArray(data.data.list)) cls = data.data.list;
+                    else if (Array.isArray(data.data)) cls = data.data;
+                    applyClasses(cls);
+                    try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: cls })); } catch (e) {}
+                } catch (e) {
+                    console.warn('loadClasses error:', e);
+                    this.classes = []; this.allClassesList = [];
+                }
+            })().finally(() => { delete this._classesInflight[cacheKey]; });
+
+            this._classesInflight[cacheKey] = task;
+            return task;
         },
 
         // 卡片墙滚动到顶部（带平滑动画）。真实滚动容器是内层 .ts-content（overflow-y:auto），
@@ -685,22 +777,100 @@ function app() {
             }
         },
 
+        _videoKey(params) {
+            const src = this.getActiveSource();
+            return [
+                src ? src.url : '',
+                params.ac || 'videolist',
+                params.pg || 1,
+                params.t || '0',
+                params.wd || ''
+            ].join('|');
+        },
+
+        _abortPendingVideos(keepKey) {
+            for (const key of Object.keys(this._reqControllers)) {
+                if (key === keepKey) continue;
+                try { this._reqControllers[key].abort(); } catch (e) {}
+            }
+        },
+
+        _isRetryableVideoError(err) {
+            if (!err) return false;
+            if (err.code === 'TIMEOUT' || err.code === 'CONNECTION_ERROR') return true;
+            if (err.name === 'TimeoutError') return true;
+            if (err.status && err.status >= 500) return true;
+            return false;
+        },
+
+        async _requestVideos(key, sourceUrl, params) {
+            // 相同 key 的请求直接复用；不同 key 由调用方 abort 旧请求。
+            if (this._inflight[key]) return this._inflight[key];
+            const controller = new AbortController();
+            this._reqControllers[key] = controller;
+
+            const task = (async () => {
+                let lastErr = null;
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    if (controller.signal.aborted) {
+                        const e = new Error('aborted'); e.name = 'AbortError'; throw e;
+                    }
+                    try {
+                        return await API.getVideos(sourceUrl, params, {
+                            signal: controller.signal,
+                            timeoutMs: 35000
+                        });
+                    } catch (e) {
+                        if (e && e.name === 'AbortError') throw e;
+                        lastErr = e;
+                        // 只重试网络类错误；源本身不支持搜索 / 解析失败 / 4xx 不重试
+                        if (attempt === 0 && this._isRetryableVideoError(e) && !controller.signal.aborted) {
+                            await new Promise(r => setTimeout(r, 500));
+                            continue;
+                        }
+                        throw e;
+                    }
+                }
+                throw lastErr;
+            })().finally(() => {
+                delete this._inflight[key];
+                delete this._reqControllers[key];
+            });
+
+            this._inflight[key] = task;
+            return task;
+        },
+
+        _invalidateVideoCache(prefix) {
+            if (!prefix) { this._videoCache = Object.create(null); return; }
+            for (const key of Object.keys(this._videoCache)) {
+                if (key.indexOf(prefix) === 0) delete this._videoCache[key];
+            }
+        },
+
         async loadData(loadMore = false) {
             const activeSource = this.getActiveSource();
             if (!activeSource) { this.videos = []; this.totalPages = 1; this.hasMore = false; return; }
             // 激活源不支持搜索时，强制按分类列表加载，避免误调用搜索接口
             if (this.searchWd && activeSource.supportSearch === false) this.searchWd = '';
+            this.searchWd = String(this.searchWd || '').trim();
+            this._normalizeCurrentType();
+
             if (!loadMore) this.scrollWallToTop();
+            const seq = ++this._reqSeq;
+
+            const params = { ac: 'videolist', pg: this.page };
+            if (this.currentType !== '0') params.t = this.currentType;
+            if (this.searchWd) params.wd = this.searchWd;
+            const key = this._videoKey(params);
+
+            // 不同 key 的旧请求全部中止；相同 key 的自然合并到同一个 Promise。
+            this._abortPendingVideos(key);
             this.loading = true;
             if (!loadMore) this.busy = true;   // 仅整页重载触发毛玻璃模糊层；滚动追加(loadMore)不触发
             this.searchError = '';
-            try {
-                // 搜索场景优先用 ac=videolist（返回完整数据，含海报/播放地址，且苹果 CMS 普遍支持）；
-                // ac=search 仅返回精简数据、缺少播放字段，不适合直接播放，故不采用。
-                const params = { ac: 'videolist', pg: this.page };
-                if (this.currentType !== '0') params.t = this.currentType;
-                if (this.searchWd) params.wd = this.searchWd;
-                const d = await API.getVideos(activeSource.url, params);
+
+            const applyData = (d) => {
                 let list = [];
                 if (Array.isArray(d.list)) list = d.list;
                 else if (d.data && Array.isArray(d.data.list)) list = d.data.list;
@@ -713,8 +883,8 @@ function app() {
                     const merged = this.videos.concat(list);
                     const seen = new Set();
                     this.videos = merged.filter(item => {
-                        const key = String(item.vod_id || '') + '_' + String(item.vod_name || '');
-                        if (seen.has(key)) return false; seen.add(key); return true;
+                        const itemKey = String(item.vod_id || '') + '_' + String(item.vod_name || '');
+                        if (seen.has(itemKey)) return false; seen.add(itemKey); return true;
                     });
                 } else {
                     this.videos = list;
@@ -723,10 +893,6 @@ function app() {
                 if (this.searchWd && pageItems === 0) {
                     this.searchError = '未找到与「' + this.searchWd + '」相关的结果（也可能是该 API 源接口本身不支持搜索）。';
                 }
-                // 推断是否还有更多页：
-                // 1) 本页为空 → 无更多；2) 后端真实 pagecount 且 > 当前页 → 有；3) 后端明确末页 → 无；
-                // 4) pagecount 缺失/不可信 → 以「本页有返回」乐观续载，遇到空页才停（很多定制 CMS 不返回 pagecount，
-                //    此前 totalPages 恒为 1，导致分页按钮隐藏、自动加载永不触发）。
                 if (pageItems === 0) {
                     this.hasMore = false;
                     if (!loadMore) this.totalPages = 1;
@@ -739,18 +905,58 @@ function app() {
                     this.hasMore = true;
                     this.totalPages = this.page + 1;
                 }
+                if (!loadMore) {
+                    this._videoCache[key] = {
+                        ts: Date.now(),
+                        videos: this.videos.slice(),
+                        totalPages: this.totalPages,
+                        hasMore: this.hasMore
+                    };
+                }
+            };
+
+            try {
+                const cached = this._videoCache[key];
+                const fresh = cached && (Date.now() - cached.ts <= this._videoCacheTTL);
+                if (fresh && !loadMore) {
+                    this.videos = cached.videos.slice();
+                    this.totalPages = cached.totalPages;
+                    this.hasMore = cached.hasMore;
+                } else {
+                    let d;
+                    try {
+                        d = await this._requestVideos(key, activeSource.url, params);
+                    } catch (e) {
+                        if (e && e.name === 'AbortError') return; // 已被新请求取代，交给新请求的 finally 清状态
+                        if (cached && !loadMore) {
+                            // 超时/失败降级：展示上一次成功数据，并明确提示可能过期
+                            this.videos = cached.videos.slice();
+                            this.totalPages = cached.totalPages;
+                            this.hasMore = cached.hasMore;
+                            this.searchError = '数据可能已过期：' + ((e && e.message) || '加载失败');
+                            return;
+                        }
+                        throw e;
+                    }
+                    if (seq === this._reqSeq) applyData(d);
+                }
             } catch (e) {
+                if (e && e.name === 'AbortError') return;
                 console.warn('loadData error:', e);
                 this.searchError = (e && e.message) || '加载失败，请稍后重试。';
                 if (!loadMore) { this.videos = []; this.totalPages = 1; }
                 this.hasMore = false;
+                if (loadMore && seq === this._reqSeq) this.page = Math.max(1, this.page - 1);
             } finally {
-                this.loading = false;
-                this.busy = false;
-                this.$nextTick(() => {
-                    this.setupAutoLoad();
-                    this.relayoutMainWall(); // 瀑布流模式下追加 / 刷新数据后重新排布
-                });
+                // 旧请求的 finally 绝不能清掉新请求的加载态
+                if (seq === this._reqSeq) {
+                    this.loading = false;
+                    this.busy = false;
+                    this.$nextTick(() => {
+                        this.setupAutoLoad();
+                        this.relayoutMainWall(); // 瀑布流模式下追加 / 刷新数据后重新排布
+                    });
+                }
             }
         },
 
@@ -1030,6 +1236,8 @@ function app() {
         saveSource() {
             if (!this.editingSource.name || !this.editingSource.url) { alert('请填写名称和地址'); return; }
             const hadEnabledBefore = this.sources.some(s => s.enabled);
+            const oldUrl = (this.editingIdx !== null && this.sources[this.editingIdx])
+                ? this.sources[this.editingIdx].url : '';
             if (this.editingIdx !== null) {
                 this.sources[this.editingIdx] = { ...this.sources[this.editingIdx], ...this.editingSource };
             } else {
@@ -1041,6 +1249,11 @@ function app() {
                     _statusCode: null
                 });
             }
+            if (oldUrl && oldUrl !== this.editingSource.url) {
+                this._invalidateVideoCache(oldUrl);
+                try { localStorage.removeItem('cms_cls_' + oldUrl); } catch (e) {}
+            }
+            this._invalidateVideoCache(this.editingSource.url);
             this.normalizeSourceEnabled(); this.saveSources(); this.showSourceEdit = false;
             // 仅当「保存的源即当前激活源」或「新增后成为首个激活源」时才刷新主视图；
             // 编辑 / 新增其它非激活源时静默保存，不打扰当前正在浏览的内容。
@@ -1401,8 +1614,12 @@ function app() {
             const skip = this.getActiveSkipSettings();
             const playSpeed = this.cfg.rememberSpeed ? (this.cfg.cms_spd || '1') : '1';
 
-            // 将完整播放状态写入 localStorage
+            // 每次打开生成唯一会话 ID。关闭/进度上报都按它校验，避免旧窗口串扰。
+            const sessionId = 'pp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+            this.playbackSessionId = sessionId;
+
             const popoutState = {
+                sessionId: sessionId,
                 playGroups: g,
                 playSrc: srcIdx,
                 playEp: epIdx,
@@ -1426,7 +1643,11 @@ function app() {
             if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
                 window.pywebview.api.open_player_window(JSON.stringify(popoutState));
             } else {
-                window.open('/player', '_blank', 'width=900,height=600');
+                if (this._popoutWindow && !this._popoutWindow.closed) {
+                    try { this._popoutWindow.close(); } catch (e) {}
+                }
+                this._popoutWindow = window.open('/player', '_blank', 'width=900,height=600');
+                this.watchPopoutWindow(this._popoutWindow, sessionId);
             }
 
             this.closePlayer();

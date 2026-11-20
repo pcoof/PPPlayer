@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    image: ppplayer-web:test
+    container_name: ppplayer-web-test
+    ports:
+      - "19528:19527"
+    volumes:
+      - ./data:/app/data
+      - ./static:/app/static:ro
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PPPLAYER_USE_SYSTEM_PROXY: "0"
+      TZ: Asia/Shanghai
+    init: true
+    restart: unless-stopped

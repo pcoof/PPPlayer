@@ -12,6 +12,9 @@
   - 下载走 daemon 线程，前端用轮询（/api/update/status）获取状态，简单稳健。
   - 版本比较复用 main._parse_app_version 的同款逻辑（(日期int, 序号int) 元组比较）。
   - SSL 证书校验失败（uv 环境缺 CA / 公司代理重签）时回退系统根证书存储，与 TrayManager 一致。
+  - GitHub 直连优先；请求异常 / 非 200 / 下载流中断时自动改用 gh-proxy 镜像
+    （https://cdn.gh-proxy.org/），解决国内网络下 GitHub 不可达导致「检查更新没反应」。
+    注意：Gist 同步带 Token，绝不经第三方镜像，凭据只走官方 api.github.com。
   - 真机（PyInstaller onefile，sys.frozen=True）：apply 会写一份自删 bat，
     由它等待本进程退出后把新 exe 复制到 sys.executable 并启动，再删除自身。
   - 开发态（python main.py，未冻结）：无法替换正在运行的 Python 解释器，改为把新
@@ -29,21 +32,17 @@ import ctypes
 
 import requests
 from requests.exceptions import SSLError, RequestException
-from requests.adapters import HTTPAdapter
-import ssl
+
+from .net_proxy import SystemCertAdapter, proxy_kwargs
 
 
 ERROR_ALREADY_EXISTS = 183  # Windows ERROR_ALREADY_EXISTS
 
-
-class _SystemCertAdapter(HTTPAdapter):
-    """证书校验兜底：改用系统根证书存储（含公司代理自签根 CA）。仅用于只读查询最新版本。"""
-
-    def init_poolmanager(self, *args, **kwargs):
-        kwargs["ssl_context"] = ssl.create_default_context()
-        return super().init_poolmanager(*args, **kwargs)
+# GitHub 国内镜像：仅在直连 GitHub 失败时作为回退使用（只读公开数据，不含任何凭据）。
+GH_PROXY_PREFIX = "https://cdn.gh-proxy.org/"
 
 
+# 证书校验统一走 src.net_proxy.SystemCertAdapter（系统根证书存储，含代理 MITM 根 CA）。
 class Updater:
     def __init__(self, current_version, github_repo, app_name="PPPlayer"):
         self.current_version = current_version
@@ -76,7 +75,48 @@ class Updater:
         except Exception:
             return None
 
-    # —— 网络：直连 GitHub，绕开系统代理（代理只影响浏览器）——
+    @staticmethod
+    def _mirror_url(url):
+        """把 GitHub 官方地址转成 gh-proxy 镜像地址；非 GitHub 地址原样返回（本地测试文件也不受影响）。"""
+        if not url:
+            return url
+        u = str(url)
+        for prefix in ("https://github.com/", "http://github.com/",
+                       "https://api.github.com/", "http://api.github.com/"):
+            if u.startswith(prefix):
+                return GH_PROXY_PREFIX + u
+        return u
+
+    @staticmethod
+    def _get_with_ssl_fallback(url, **kwargs):
+        """GET：按统一策略决定是否走系统代理；始终用系统根证书校验（兼容 MITM 代理）。"""
+        kwargs.setdefault("proxies", proxy_kwargs())
+        try:
+            return requests.get(url, **kwargs)
+        except SSLError:
+            s = requests.Session()
+            s.proxies = proxy_kwargs() or {}
+            s.mount("https://", SystemCertAdapter())
+            return s.get(url, **kwargs)
+
+    def _get_github(self, url, **kwargs):
+        """直连 GitHub 优先；异常 / 非 200 时自动切 gh-proxy 镜像；两路都失败抛 RequestException。"""
+        errors = []
+        candidates = [url]
+        mirrored = self._mirror_url(url)
+        if mirrored != url:
+            candidates.append(mirrored)
+        for candidate in candidates:
+            try:
+                resp = self._get_with_ssl_fallback(candidate, **kwargs)
+                if resp is not None and resp.status_code == 200:
+                    return resp
+                errors.append(f"{candidate} -> HTTP {getattr(resp, 'status_code', '?')}")
+            except (SSLError, RequestException) as e:
+                errors.append(f"{candidate} -> {e}")
+        raise RequestException("GitHub 直连与镜像均失败：" + " | ".join(errors))
+
+    # —— 网络：直连 GitHub 优先，失败自动切镜像；绕开系统代理（代理只影响浏览器）——
     def _fetch_latest_info(self):
         """返回 (tag_lstrip_v, url, notes) 或 None（无更新 / 网络失败）。"""
         # 测试覆盖：设置 PPPLAYER_FAKE_UPDATE=下载地址 可强制进入「有更新」状态，
@@ -86,27 +126,12 @@ class Updater:
             return (os.environ.get("PPPLAYER_FAKE_VERSION", "99999999.0"), fake,
                     "（本地测试覆盖）模拟新版本更新包")
 
-        no_proxy = {"http": None, "https": None}
-
-        def _get():
-            try:
-                return requests.get(
-                    self.api_latest, timeout=10,
-                    headers={"Accept": "application/vnd.github+json"},
-                    proxies=no_proxy,
-                )
-            except SSLError:
-                s = requests.Session()
-                s.proxies = no_proxy
-                s.mount("https://", _SystemCertAdapter())
-                return s.get(
-                    self.api_latest, timeout=10,
-                    headers={"Accept": "application/vnd.github+json"},
-                )
-
         try:
-            resp = _get()
-        except (SSLError, RequestException) as e:
+            resp = self._get_github(
+                self.api_latest, timeout=10,
+                headers={"Accept": "application/vnd.github+json"},
+            )
+        except RequestException as e:
             self._last_error = str(e)
             print(f"[Updater] 检查更新失败（可忽略）：{e}")
             return None
@@ -114,7 +139,9 @@ class Updater:
             return None
         try:
             data = resp.json()
-        except Exception:
+        except Exception as e:
+            # 镜像若返回 HTML 挑战页 / 非 JSON，必须报「检查失败」而非静默当成「无更新」
+            self._last_error = f"GitHub 返回的不是有效 JSON：{e}"
             return None
         tag = data.get("tag_name") or ""
         cur = self._parse(self.current_version)
@@ -194,6 +221,37 @@ class Updater:
         self._download_thread = threading.Thread(target=self._download, daemon=True)
         self._download_thread.start()
 
+    def _stream_download(self, url, dest):
+        """单路流式下载；SSL 失败用系统根证书兜底，进度写回 self.progress。"""
+        kwargs = dict(stream=True, timeout=(15, 60), proxies=proxy_kwargs())
+        try:
+            resp = requests.get(url, **kwargs)
+        except SSLError:
+            s = requests.Session()
+            s.proxies = proxy_kwargs() or {}
+            s.mount("https://", SystemCertAdapter())
+            resp = s.get(url, **kwargs)
+        try:
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            with open(dest, "wb") as f:
+                for chunk in resp.iter_content(256 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    done += len(chunk)
+                    with self._lock:
+                        if total:
+                            self.progress = min(100, int(done * 100 / total))
+                        else:
+                            self.progress = min(99, self.progress + 1)
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
     def _download(self):
         try:
             url = self.download_url
@@ -223,31 +281,44 @@ class Updater:
                 except Exception:
                     pass
             dest = os.path.join(tmpdir, name)
-            no_proxy = {"http": None, "https": None}
-            resp = requests.get(url, stream=True, timeout=(15, 60), proxies=no_proxy)
-            resp.raise_for_status()
-            total = int(resp.headers.get("Content-Length") or 0)
-            done = 0
-            with open(dest, "wb") as f:
-                for chunk in resp.iter_content(256 * 1024):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    done += len(chunk)
+            # 直连 GitHub 优先；失败（HTTP 错误 / 连接中断 / 空文件）自动切 gh-proxy 镜像重下。
+            candidates = [url]
+            mirrored = self._mirror_url(url)
+            if mirrored != url:
+                candidates.append(mirrored)
+            last_err = None
+            for attempt, candidate in enumerate(candidates):
+                try:
                     with self._lock:
-                        if total:
-                            self.progress = min(100, int(done * 100 / total))
-                        else:
-                            self.progress = min(99, self.progress + 1)
+                        self.progress = 0   # 镜像重试时进度归零，避免前端进度条停在旧值
+                    self._stream_download(candidate, dest)
+                    if not os.path.exists(dest) or os.path.getsize(dest) <= 0:
+                        raise RuntimeError("下载文件为空")
+                    with self._lock:
+                        self.downloaded_path = dest
+                        self.progress = 100
+                        self.state = "ready"
+                        self.error = ""
+                    print(f"[Updater] 下载完成（{'GitHub 直连' if attempt == 0 else 'gh-proxy 镜像'}）：{candidate}")
+                    self._notify_frontend()
+                    return
+                except Exception as e:
+                    last_err = e
+                    print(f"[Updater] 下载失败（{'GitHub 直连' if attempt == 0 else 'gh-proxy 镜像'}）：{e}")
+                    try:
+                        if os.path.exists(dest):
+                            os.remove(dest)   # 清掉不完整文件，避免下次 apply 覆盖出坏 exe
+                    except Exception:
+                        pass
             with self._lock:
-                self.downloaded_path = dest
-                self.progress = 100
-                self.state = "ready"
+                self.state = "error"
+                self.error = str(last_err)[:200]
             self._notify_frontend()
         except Exception as e:
             with self._lock:
                 self.state = "error"
                 self.error = str(e)[:200]
+            self._notify_frontend()
 
     def _notify_frontend(self):
         w = self._window

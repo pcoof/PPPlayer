@@ -17,13 +17,12 @@
 import os
 import sys
 import json
-import ssl
 import threading
 
 import requests
 from requests.exceptions import SSLError, RequestException
-from requests.adapters import HTTPAdapter
 
+from .net_proxy import SystemCertAdapter, proxy_kwargs
 from .config_store import load_all, save_all, _PROJECT_ROOT
 
 
@@ -35,17 +34,6 @@ GIST_DESCRIPTION = "PPPlayer 数据同步（由 PPPlayer 自动管理，请勿�
 
 DATA_DIR = os.path.join(_PROJECT_ROOT, "data")
 STATE_FILE = os.path.join(DATA_DIR, "gist_sync.json")
-
-_NO_PROXY = {"http": None, "https": None}
-
-
-class _SystemCertAdapter(HTTPAdapter):
-    """SSL 校验兜底：公司代理自签根 CA 装在系统根存储时可用。仅用于只读/受控请求。"""
-
-    def init_poolmanager(self, *args, **kwargs):
-        kwargs["ssl_context"] = ssl.create_default_context()
-        return super().init_poolmanager(*args, **kwargs)
-
 
 class GistSync:
     def __init__(self, app_name="PPPlayer"):
@@ -109,10 +97,10 @@ class GistSync:
             self._state["last_sync_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._save_state()
 
-    # ——— HTTP：绕代理 + SSL 系统根兜底 ———
+    # ——— HTTP：遵循系统代理策略 + SSL 系统根兜底 ———
     def _session(self):
         s = requests.Session()
-        s.proxies = _NO_PROXY
+        s.proxies = proxy_kwargs() or {}
         s.headers.update({
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -126,11 +114,11 @@ class GistSync:
         if token:
             s.headers.update({"Authorization": f"Bearer {token}"})
         kwargs.setdefault("timeout", (12, 30))
-        kwargs.setdefault("proxies", _NO_PROXY)
+        kwargs.setdefault("proxies", proxy_kwargs())
         try:
             return s.request(method, url, **kwargs)
         except SSLError:
-            s.mount("https://", _SystemCertAdapter())
+            s.mount("https://", SystemCertAdapter())
             return s.request(method, url, **kwargs)
 
     @staticmethod
@@ -153,11 +141,11 @@ class GistSync:
         s = self._session()
         s.headers.update({"Authorization": f"Bearer {token}"})
         try:
-            resp = s.get(API_BASE + "/user", timeout=(12, 30), proxies=_NO_PROXY)
+            resp = s.get(API_BASE + "/user", timeout=(12, 30), proxies=proxy_kwargs())
         except SSLError:
-            s.mount("https://", _SystemCertAdapter())
+            s.mount("https://", SystemCertAdapter())
             try:
-                resp = s.get(API_BASE + "/user", timeout=(12, 30), proxies=_NO_PROXY)
+                resp = s.get(API_BASE + "/user", timeout=(12, 30), proxies=proxy_kwargs())
             except RequestException as e:
                 return {"ok": False, "error": f"连接 GitHub 失败：{e}"}
         except RequestException as e:

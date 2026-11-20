@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+data
+doc
+build
+dist
+*.exe
+*.spec
+.workbuddy
+*.log
+uv.lock
+README.md

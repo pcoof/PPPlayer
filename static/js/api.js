@@ -11,17 +11,52 @@ const API = {
         return resp.json();
     },
 
-    /** 获取 CMS 视频列表 */
-    async getVideos(sourceUrl, params = {}) {
+    /** 获取 CMS 视频列表（支持外部取消 + 前端硬超时） */
+    async getVideos(sourceUrl, params = {}, options = {}) {
         const qs = new URLSearchParams({ source: sourceUrl, ...params });
-        const resp = await fetch('/api/cms/videos?' + qs.toString());
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            // 后端已返回结构化中文错误（含「接口本身不支持搜索」等），直接透传
-            const msg = (data && (data.error || data.message)) || `请求失败（HTTP ${resp.status}）`;
-            throw new Error(msg);
+        const controller = new AbortController();
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, Number(options.timeoutMs) || 35000);
+
+        const externalSignal = options.signal || null;
+        const onExternalAbort = () => controller.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) controller.abort();
+            else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
         }
-        return data;
+
+        try {
+            const resp = await fetch('/api/cms/videos?' + qs.toString(), {
+                signal: controller.signal,
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                // 后端已返回结构化中文错误（含「接口本身不支持搜索」等），直接透传
+                const msg = (data && (data.error || data.message)) || `请求失败（HTTP ${resp.status}）`;
+                const err = new Error(msg);
+                err.code = (data && data.code) || '';
+                err.status = resp.status;
+                err.payload = data;
+                throw err;
+            }
+            return data;
+        } catch (e) {
+            if (timedOut && !(externalSignal && externalSignal.aborted)) {
+                const err = new Error('请求超时，请稍后重试');
+                err.name = 'TimeoutError';
+                err.code = 'TIMEOUT';
+                throw err;
+            }
+            throw e;
+        } finally {
+            clearTimeout(timer);
+            if (externalSignal) {
+                try { externalSignal.removeEventListener('abort', onExternalAbort); } catch (e) {}
+            }
+        }
     },
 
     /** 获取视频详情 */

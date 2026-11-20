@@ -14,9 +14,16 @@
 
   var drag = null;
   var maximized = false;   // 与 Python 端 _is_maximized 对齐（per-window）
+  var snapped = false;     // 与 Python 端 _is_snapped 对齐（自绘菜单贴靠态：半屏/象限）
   var fullscreen = false;  // 与 Python 端 _is_fullscreen 对齐（per-window）
   var rafId = null;
   var lastEv = null;
+
+  // 自绘 Snap Layout 菜单相关
+  var snapBtn = null;
+  var snapMenu = null;
+  var snapShowTimer = null;
+  var snapHideTimer = null;
 
   function api() {
     return (window.pywebview && window.pywebview.api) || null;
@@ -87,6 +94,173 @@
     }
   }
 
+  // ==================== 自绘 Win11 风格 Snap Layout 菜单 ====================
+  // frameless + 自绘标题栏无法弹出系统原生 Snap Layout（微软文档与 pywebview PR#1862 已证实），
+  // 这里在最大化按钮下方自绘一个布局浮层，点击布局项经 api.snap_layout(zone) 贴靠窗口。
+  // DOM 动态创建，主窗口与播放窗口共用本文件，无需改两个 HTML。
+  var SNAP_ZONES = [
+    { zone: 'max',     label: '最大化',   cells: [1, 1, 1, 1] },
+    { zone: 'left',    label: '左半屏',   cells: [1, 0, 1, 0] },
+    { zone: 'right',   label: '右半屏',   cells: [0, 1, 0, 1] },
+    { zone: 'tl',      label: '左上',     cells: [1, 0, 0, 0] },
+    { zone: 'tr',      label: '右上',     cells: [0, 1, 0, 0] },
+    { zone: 'bl',      label: '左下',     cells: [0, 0, 1, 0] },
+    { zone: 'br',      label: '右下',     cells: [0, 0, 0, 1] },
+  ];
+
+  function findSnapButton() {
+    // 播放器：#winMaxBtn；主窗口：.ts-win-controls.header-win 下第 2 个按钮（最小化/最大化/关闭）
+    return document.getElementById('winMaxBtn') ||
+      document.querySelector('.ts-win-controls.header-win .ts-win-btn:nth-of-type(2)');
+  }
+
+  function buildSnapMenu() {
+    if (snapMenu || !document.body) return;
+    snapBtn = findSnapButton();
+    if (!snapBtn) return;
+
+    var menu = document.createElement('div');
+    menu.className = 'pp-snap-menu';
+    menu.setAttribute('role', 'menu');
+
+    var title = document.createElement('div');
+    title.className = 'pp-snap-title';
+    title.textContent = '贴靠布局';
+    menu.appendChild(title);
+
+    var grid = document.createElement('div');
+    grid.className = 'pp-snap-grid';
+    SNAP_ZONES.forEach(function (item) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'pp-snap-item';
+      btn.setAttribute('role', 'menuitem');
+      btn.setAttribute('data-zone', item.zone);
+      btn.title = item.label;
+
+      var preview = document.createElement('span');
+      preview.className = 'pp-snap-preview';
+      item.cells.forEach(function (on) {
+        var cell = document.createElement('i');
+        cell.className = 'pp-snap-cell' + (on ? ' is-on' : '');
+        preview.appendChild(cell);
+      });
+      var label = document.createElement('span');
+      label.className = 'pp-snap-label';
+      label.textContent = item.label;
+      btn.appendChild(preview);
+      btn.appendChild(label);
+
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        applySnap(item.zone);
+        hideSnapMenu();
+      });
+      grid.appendChild(btn);
+    });
+
+    // 还原项：仅在已最大化/已贴靠时可用
+    var restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'pp-snap-item pp-snap-restore';
+    restore.setAttribute('role', 'menuitem');
+    restore.setAttribute('data-zone', 'restore');
+    restore.title = '还原窗口';
+    var rPreview = document.createElement('span');
+    rPreview.className = 'pp-snap-restore-icon';
+    var rLabel = document.createElement('span');
+    rLabel.className = 'pp-snap-label';
+    rLabel.textContent = '还原';
+    restore.appendChild(rPreview);
+    restore.appendChild(rLabel);
+    restore.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      applySnap('restore');
+      hideSnapMenu();
+    });
+    grid.appendChild(restore);
+    menu.appendChild(grid);
+    document.body.appendChild(menu);
+    snapMenu = menu;
+
+    // 鼠标可从最大化按钮移到浮层而不消失：两边各用 enter 取消隐藏、leave 延迟隐藏
+    snapBtn.addEventListener('mouseenter', function () {
+      clearTimeout(snapHideTimer);
+      clearTimeout(snapShowTimer);
+      snapShowTimer = setTimeout(showSnapMenu, 400);
+    });
+    snapBtn.addEventListener('mouseleave', scheduleSnapHide);
+    menu.addEventListener('mouseenter', function () { clearTimeout(snapHideTimer); clearTimeout(snapShowTimer); });
+    menu.addEventListener('mouseleave', scheduleSnapHide);
+    // 点击最大化按钮本身也收起浮层（按钮 click 的原生逻辑照常执行）
+    snapBtn.addEventListener('click', hideSnapMenu);
+
+    refreshSnapRestore();
+  }
+
+  function scheduleSnapHide() {
+    clearTimeout(snapShowTimer);
+    clearTimeout(snapHideTimer);
+    snapHideTimer = setTimeout(hideSnapMenu, 250);
+  }
+
+  function positionSnapMenu() {
+    if (!snapMenu || !snapBtn) return;
+    var r = snapBtn.getBoundingClientRect();
+    var mw = snapMenu.offsetWidth || 300;
+    var left = Math.min(Math.max(8, r.right - mw), Math.max(8, window.innerWidth - mw - 8));
+    snapMenu.style.left = left + 'px';
+    snapMenu.style.top = (r.bottom + 6) + 'px';
+  }
+
+  function showSnapMenu() {
+    if (!api() || !isDesktop() || fullscreen || !snapBtn) return;
+    buildSnapMenu();
+    if (!snapMenu) return;
+    snapMenu.classList.add('is-open');
+    positionSnapMenu();
+    refreshSnapRestore();
+  }
+
+  function hideSnapMenu() {
+    clearTimeout(snapShowTimer);
+    clearTimeout(snapHideTimer);
+    if (snapMenu) snapMenu.classList.remove('is-open');
+  }
+
+  function refreshSnapRestore() {
+    if (!snapMenu) return;
+    var btn = snapMenu.querySelector('.pp-snap-restore');
+    if (btn) btn.classList.toggle('is-disabled', !(maximized || snapped));
+  }
+
+  function applySnap(zone) {
+    var a = api();
+    if (!a || !a.snap_layout) return;
+    function apply(r) {
+      if (r && typeof r === 'object') {
+        if (typeof r.maximized === 'boolean') window.WindowChrome.setMaximized(r.maximized);
+        if (typeof r.snapped === 'boolean') window.WindowChrome.setSnapped(r.snapped);
+      }
+      refreshSnapRestore();
+    }
+    try {
+      var p = a.snap_layout(zone);
+      if (p && typeof p.then === 'function') p.then(apply).catch(function () {});
+      else apply(p);
+    } catch (e) {}
+  }
+
+  // DOM 就绪后创建菜单；pywebviewready 再兜底一次（最大化按钮可能由 Alpine x-if 延迟渲染）
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', buildSnapMenu);
+  } else {
+    buildSnapMenu();
+  }
+  window.addEventListener('pywebviewready', function () { setTimeout(buildSnapMenu, 100); });
+
   // 用 rAF 合并同帧的 mousemove，每帧最多发一次 IPC
   function frame() {
     rafId = null;
@@ -153,21 +327,36 @@
 
   window.WindowChrome = {
     maximized: false,
+    snapped: false,
     fullscreen: false,
     setMaximized: function (v) {
       maximized = !!v;
       this.maximized = maximized;
+      // 最大化时给 body 打标记：CSS 据此隐藏 8 个边缘缩放热区，
+      // 消除「最大化后鼠标移到边缘仍出现 ns-resize/ew-resize 箭头」的问题
+      // （后端 resize_start / 本文件 begin() 虽已拒绝缩放，但光标是纯 CSS，需同步 class 才能去掉）。
+      if (document.body) document.body.classList.toggle('is-maximized', maximized);
+      refreshSnapRestore();
       // 通知外部（如 player.html 的最大化按钮图标切换）
       if (typeof this.onStateChange === 'function') {
-        try { this.onStateChange({ maximized: maximized, fullscreen: fullscreen }); } catch (e) {}
+        try { this.onStateChange({ maximized: maximized, snapped: snapped, fullscreen: fullscreen }); } catch (e) {}
+      }
+    },
+    setSnapped: function (v) {
+      snapped = !!v;
+      this.snapped = snapped;
+      refreshSnapRestore();
+      if (typeof this.onStateChange === 'function') {
+        try { this.onStateChange({ maximized: maximized, snapped: snapped, fullscreen: fullscreen }); } catch (e) {}
       }
     },
     setFullscreen: function (v) {
       fullscreen = !!v;
       this.fullscreen = fullscreen;
       applyFullscreenClass(fullscreen);
+      if (fullscreen) hideSnapMenu();  // 全屏时收起布局浮层
       if (typeof this.onStateChange === 'function') {
-        try { this.onStateChange({ maximized: maximized, fullscreen: fullscreen }); } catch (e) {}
+        try { this.onStateChange({ maximized: maximized, snapped: snapped, fullscreen: fullscreen }); } catch (e) {}
       }
     },
     // 供标题栏双击 / 窗口「最大化」按钮调用。把「目标态」(=当前态取反) 传给 Python，
@@ -220,6 +409,7 @@
         function apply(r) {
           if (r) {
             if (typeof r.maximized === 'boolean') window.WindowChrome.setMaximized(r.maximized);
+            if (typeof r.snapped === 'boolean') window.WindowChrome.setSnapped(r.snapped);
             if (typeof r.fullscreen === 'boolean') window.WindowChrome.setFullscreen(r.fullscreen);
           }
         }
