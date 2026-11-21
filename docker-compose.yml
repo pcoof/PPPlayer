@@ -1,10 +1,12 @@
 services:
   web:
+    # build 保留给本地开发：docker compose up -d --build 用本地源码构建。
+    # image 指向 GHCR：别人可直接 docker compose up -d 拉发布镜像（或见 README 的 docker run 一条命令）。
     build: .
-    image: ppplayer-web:test
+    image: ghcr.io/pcoof/ppplayer:latest
     container_name: ppplayer-web-test
     ports:
-      - "19528:19527"
+      - "19527:19527"
     volumes:
       - ./data:/app/data
       - ./static:/app/static:ro

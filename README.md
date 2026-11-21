@@ -94,9 +94,32 @@ uv run main.py
 
 首次启动会自动打开 pywebview 窗口（1280×800），标题为 "PPPlayer"。
 
+## Docker 部署（GHCR 一条命令）
+
+镜像已发布到 GitHub Container Registry，**无需克隆源码**，一条命令即可启动 Web 版：
+
+```bash
+docker run -d --name ppplayer -p 19527:19527 \
+  -v ppplayer-data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/pcoof/ppplayer:latest
+```
+
+浏览器访问 `http://localhost:19527/`（播放页 `http://localhost:19527/player`）。配置写入命名卷 `ppplayer-data`，容器重建不丢。
+
+常用操作：
+
+```bash
+docker logs -f ppplayer          # 查看日志
+docker pull ghcr.io/pcoof/ppplayer:latest   # 拉取最新镜像
+docker stop ppplayer && docker rm ppplayer  # 停止并删除容器
+```
+
+> 私有仓库或 GHCR 包未设为 Public 时，需先 `docker login ghcr.io`（用户名 GitHub ID，密码为具备 `read:packages` 的 PAT）。镜像发布由 `.github/workflows/docker-publish.yml` 在 push main / 手动触发时自动完成。
+
 ## Docker 本地 Web 冒烟测试
 
-只想验证 Flask 服务、静态页面、API 与配置挂载（不启动 pywebview 桌面窗口）时，可以使用本地镜像：
+想用本地源码构建镜像验证（不启动 pywebview 桌面窗口）时：
 
 ```bash
 docker compose up -d --build
@@ -106,8 +129,8 @@ docker compose ps
 
 浏览器访问：
 
-- `http://localhost:19528/` — 主页面
-- `http://localhost:19528/player` — 播放页面
+- `http://localhost:19527/` — 主页面
+- `http://localhost:19527/player` — 播放页面
 
 停止服务：
 
@@ -115,7 +138,7 @@ docker compose ps
 docker compose down
 ```
 
-> 注意：容器只做 Web 冒烟测试，不启动 pywebview，无法验证独立播放器窗口居中、置顶、拖拽、全屏等桌面能力；这些必须在 Windows 真机执行 `uv run main.py` 验证。容器与桌面端不要同时运行并共用同一份 `data/`，避免配置互相覆盖。
+> 注意：容器只提供 Web 服务，不启动 pywebview，无法验证独立播放器窗口居中、置顶、拖拽、全屏等桌面能力；这些必须在 Windows 真机执行 `uv run main.py` 验证。容器与桌面端不要同时运行并共用同一份 `data/`，避免配置互相覆盖。
 
 ## 构建与发布（Windows 单文件 exe）
 
@@ -129,15 +152,16 @@ CI 流程、本地打包命令、版本号来源与应用内自更新的完整�
 PPPlayer/
 ├── pyproject.toml           # uv 项目配置（版本号唯一来源：project.version）
 ├── uv.lock                  # 依赖锁文件
-├── Dockerfile               # 本地 Web 测试镜像（最小依赖，不导入 main.py）
-├── docker-compose.yml       # 本地 Web 冒烟测试服务（19528 -> 19527）
+├── Dockerfile               # Web 镜像（最小依赖，不导入 main.py）
+├── docker-compose.yml       # 本地 Web 开发/测试服务（19527 -> 19527，image 指向 GHCR）
 ├── .dockerignore            # 排除桌面端/临时文件，缩小镜像构建上下文
-├── requirements.web.txt     # 容器 Web 测试最小依赖
+├── requirements.web.txt     # 容器 Web 最小依赖
 ├── main.py                  # 入口：启动 Flask + pywebview、托盘、窗口管理、系统事件
 ├── README.md                # 本文件
 ├── logo.ico                 # 应用图标
 ├── .github/workflows/
-│   └── build.yml            # CI：版本计算 + 打包 + 版本资源 + 发布 Release
+│   ├── build.yml            # CI：版本计算 + 打包 + 版本资源 + 发布 Release
+│   └── docker-publish.yml   # CI：构建并推送 Web 镜像到 GHCR（latest + 版本 tag）
 ├── data/                    # 运行时生成（首次启动后存在）
 │   ├── config.json          # 本地配置（源、收藏、历史、设置）—— Gist 同步的数据内容
 │   └── gist_sync.json       # Gist 凭据/状态（Token、gist_id、最近同步时间）—— 独立存储，不被同步覆盖

@@ -197,8 +197,34 @@ def clear_popout_state(session_id=None):
     return True
 
 
+def _default_app_version() -> str:
+    """纯 Web / Docker 启动路径的版本兜底：读取 pyproject.toml 的 [project].version。
+
+    桌面端由 main.py 在启动时把版本注入 app.config，这里只在没注入时使用；
+    容器不导入 main.py（含 Windows-only 依赖），因此必须自带这份读取逻辑。
+    """
+    try:
+        import tomllib
+        with open(os.path.join(_BASE, "pyproject.toml"), "rb") as f:
+            data = tomllib.load(f)
+        v = (data.get("project") or {}).get("version", "")
+        if v:
+            return str(v)
+    except Exception:
+        pass
+    return os.environ.get("PPPLAYER_VERSION", "dev")
+
+
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
+
+    # 版本/仓库信息兜底：main.py 启动时会覆盖为同值；Web/Docker 直接用这里的默认值，
+    # 避免 /api/version 在网页端显示 "unknown"、仓库链接为空。
+    if not app.config.get("APP_VERSION") or app.config.get("APP_VERSION") == "unknown":
+        app.config["APP_VERSION"] = _default_app_version()
+    app.config.setdefault("GITHUB_REPO", "pcoof/PPPlayer")
+    app.config.setdefault("GITHUB_REPO_URL", "https://github.com/pcoof/PPPlayer")
+    app.config.setdefault("GITHUB_RELEASES_URL", "https://github.com/pcoof/PPPlayer/releases")
 
     # ── 页面路由 ─────────────────────────────────────────────
     @app.route("/")

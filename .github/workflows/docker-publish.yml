@@ -1,0 +1,94 @@
+name: Publish Docker Image (GHCR)
+# ========== Workflow 说明 ==========
+# 目标：把 Web 测试镜像发布到 GitHub Container Registry，让别人用一条 docker run 命令即可启动。
+# 1. 触发：push main / 手动触发（workflow_dispatch）。
+# 2. 版本号沿用 build.yml 的 YYYYMMDD.N 同日自增算法，并在构建期写回 pyproject.toml，
+#    使容器内 /api/version 返回的版本与镜像 tag 一致（源码里不维护固定版本）。
+# 3. 用 docker/build-push-action 构建并推送：
+#    ghcr.io/<owner小写>/ppplayer:latest 与 :vYYYYMMDD.N
+# 注意：GitHub 官方限制「由 GITHUB_TOKEN 创建的 tag 不会触发新 workflow」，
+#      因此这里不依赖 build.yml 发布的 tag，而是独立算版本，避免链路失效。
+# ==========================================
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ghcr-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write   # 推送 GHCR 镜像必需
+
+env:
+  IMAGE_NAME: ppplayer
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Generate version YYYYMMDD.N
+        id: gen_version
+        run: |
+          set -euo pipefail
+          DATE_PREFIX=$(date +%Y%m%d)
+          MAX_SERIAL=0
+          for tag in $(git tag --list "v${DATE_PREFIX}.*"); do
+            SERIAL=$(echo "$tag" | cut -d'.' -f2)
+            if [[ "$SERIAL" -gt "$MAX_SERIAL" ]]; then
+              MAX_SERIAL=$SERIAL
+            fi
+          done
+          FULL_VERSION="${DATE_PREFIX}.$((MAX_SERIAL + 1))"
+          echo "full_version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Image version: v${FULL_VERSION}"
+
+      - name: Write version into pyproject.toml (build-time)
+        env:
+          FULL_VER: ${{ steps.gen_version.outputs.full_version }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^version[[:space:]]*=[[:space:]]*\".*\"/version = \"${FULL_VER}\"/" pyproject.toml
+          grep '^version' pyproject.toml
+
+      # GHCR 镜像名必须全小写；仓库 owner 若为大写需归一化（本仓库为 pcoof）。
+      - name: Resolve lowercase owner
+        id: owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          echo "name=$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.name }}/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/${{ env.IMAGE_NAME }}:v${{ steps.gen_version.outputs.full_version }}
+          labels: |
+            org.opencontainers.image.title=PPPlayer
+            org.opencontainers.image.version=${{ steps.gen_version.outputs.full_version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -16,6 +16,8 @@ RUN python -m pip install --no-cache-dir -r /app/requirements.web.txt
 # 只复制 Web/API 运行所需内容；不要导入 main.py（pywebview/winreg 等 Windows-only）。
 COPY src /app/src
 COPY static /app/static
+# 版本号唯一来源：/api/version 在纯 Web 启动时从此文件读取（[project].version）。
+COPY pyproject.toml /app/pyproject.toml
 
 EXPOSE 19527
 
